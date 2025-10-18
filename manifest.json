@@ -1,0 +1,23 @@
+{
+    "manifest_version": 3,
+    "name": "TreeAI",
+    "version": "0.1",
+    "description": "An AI-powered Chrome Extension demo for Google Chrome AI 2025 hackathon.",
+    "permissions": ["storage", "activeTab", "scripting"],
+    "background": {
+      "service_worker": "background.js"
+    },
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"]
+      }
+    ],
+    "side_panel": {
+      "default_path": "sidepanel/sidepanel.html"
+    },
+    "action": {
+      "default_title": "Open AI Side Panel"
+    }
+  }
+  
