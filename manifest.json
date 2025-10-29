@@ -3,6 +3,12 @@
     "name": "EchoNav",
     "version": "1.0",
     "description": "A Chrome extension that uses built-in AI to generate a dynamic, multi-level hierarchy outline from AI conversation histories.",
+    "icons": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
     "permissions": ["storage", "tts", "activeTab", "scripting"],
     "host_permissions": [
         "https://chatgpt.com/*",
@@ -28,7 +34,12 @@
       }
     ],
     "action": {
-      "default_title": "Toggle EchoNav"
+      "default_title": "Toggle EchoNav",
+      "default_icon": {
+        "16": "icons/icon16.png",
+        "32": "icons/icon32.png",
+        "48": "icons/icon48.png"
+      }
     }
   }
   
