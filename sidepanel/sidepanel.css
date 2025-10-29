@@ -1,0 +1,1250 @@
+/* EchoNav - Modern Minimalist Design System */
+
+/* CSS Variables for consistent theming */
+:root {
+    /* Colors */
+    --primary-color: #2563eb;
+    --primary-hover: #1d4ed8;
+    --secondary-color: #64748b;
+    --secondary-hover: #475569;
+    --success-color: #059669;
+    --success-hover: #047857;
+    --danger-color: #dc2626;
+    --danger-hover: #b91c1c;
+    --warning-color: #d97706;
+    --warning-hover: #b45309;
+    
+    /* Neutral Colors */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --border-color: #e2e8f0;
+    --border-hover: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    
+    /* Spacing */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    
+    /* Typography */
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    
+    /* Border Radius */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    
+    /* Transitions */
+    --transition-fast: 150ms ease-in-out;
+    --transition-normal: 250ms ease-in-out;
+}
+
+/* Reset and Base Styles */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Header Styles */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-lg);
+    background-color: var(--bg-primary);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.logo {
+    font-size: var(--font-size-xl);
+    line-height: 1;
+}
+
+.app-header h1 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+/* Action Button */
+.action-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+}
+
+.action-btn:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.action-btn:active {
+    transform: translateY(0);
+}
+
+/* Removed tooltip styling to prevent layout shifts */
+
+.action-btn.active {
+    background-color: var(--success-color);
+}
+
+.action-btn.active:hover {
+    background-color: var(--success-hover);
+}
+
+.action-btn .icon {
+    font-size: var(--font-size-sm);
+}
+
+.action-btn .text {
+    display: none;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--border-color);
+    transition: var(--transition-fast);
+    border-radius: 24px;
+}
+
+.switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: var(--transition-fast);
+    border-radius: 50%;
+    box-shadow: var(--shadow-sm);
+}
+
+.toggle-switch input:checked + .switch-slider {
+    background-color: var(--primary-color);
+}
+
+.toggle-switch input:checked + .switch-slider:before {
+    transform: translateX(20px);
+}
+
+/* Main Content */
+.app-main {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 80px - 60px); /* Subtract header height and bottom nav height */
+    position: relative; /* For absolute positioned more-options-btn */
+}
+
+/* Bottom Tab Navigation */
+.bottom-tab-nav {
+    display: flex;
+    background-color: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
+    padding: 0 var(--space-sm);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    height: 60px;
+}
+
+.tab-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    position: relative;
+    height: 100%;
+}
+
+.tab-btn:hover {
+    color: var(--text-secondary);
+    background-color: var(--bg-tertiary);
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    background-color: var(--bg-primary);
+}
+
+.bottom-tab-nav .tab-btn.active::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: var(--primary-color);
+}
+
+.tab-icon {
+    font-size: var(--font-size-lg);
+    line-height: 1;
+}
+
+.tab-label {
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+/* Content Container */
+.content-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+.tab-panel {
+    display: none;
+    height: 100%;
+    overflow-y: auto;
+}
+
+.tab-panel.active {
+    display: block;
+}
+
+/* Panel Headers */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+}
+
+.panel-header h2 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.panel-header .header-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.panel-content {
+    padding: var(--space-lg);
+    height: calc(100% - 80px);
+    overflow-y: auto;
+}
+
+/* Button Styles */
+.primary-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-md) var(--space-lg);
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+}
+
+.primary-btn:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.secondary-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.secondary-btn:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.danger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--danger-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.danger-btn:hover {
+    background-color: var(--danger-hover);
+}
+
+.btn-icon {
+    font-size: var(--font-size-sm);
+}
+
+/* State Components */
+.welcome-state,
+.error-state,
+.loading-state,
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: var(--space-xl);
+    min-height: 200px;
+}
+
+.welcome-icon,
+.error-icon,
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: var(--space-md);
+    opacity: 0.8;
+}
+
+.welcome-state h2,
+.error-state h3,
+.empty-state h3 {
+    font-size: var(--font-size-xl);
+    font-weight: 600;
+    margin: 0 0 var(--space-sm) 0;
+    color: var(--text-primary);
+}
+
+.welcome-state p,
+.error-state p,
+.empty-state p {
+    color: var(--text-secondary);
+    margin: 0 0 var(--space-lg) 0;
+    max-width: 300px;
+    line-height: 1.6;
+}
+
+.error-text {
+    color: var(--danger-color);
+    font-weight: 500;
+}
+
+/* Loading Spinner */
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border-color);
+    border-top: 3px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: var(--space-md);
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Outline Content */
+.outline-content {
+    padding: var(--space-lg);
+}
+
+/* Flow View Styles */
+.timeline-container {
+    position: relative;
+}
+
+/* Timeline Simple Loading */
+.timeline-simple-placeholder {
+    position: relative;
+    margin: var(--space-md) 0;
+    padding-left: 40px; /* Match timeline item padding */
+}
+
+.timeline-shimmer {
+    background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--border-color) 50%, var(--bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+    height: 10px; /* Half of typical text height */
+    width: 100%;
+    max-width: 300px; /* Reasonable max width */
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.timeline-container::before {
+    content: '';
+    position: absolute;
+    left: 20px; /* Define the center axis */
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: var(--border-color);
+    transform: translateX(-50%); /* Perfectly center the line on the axis */
+}
+
+.timeline-item {
+    position: relative;
+    padding-left: 40px; /* Space for the line and dot */
+    margin-bottom: var(--space-lg);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-md);
+}
+
+.timeline-dot {
+    position: absolute;
+    left: 20px; /* Align to the same axis */
+    top: 2px;   /* Align with first line of text (adjusted for better alignment) */
+    width: 20px;
+    height: 20px;
+    transform: translateX(-50%); /* Perfectly center the dot on the axis */
+    background-color: var(--primary-color);
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px var(--bg-primary); /* Simulate a border to "cut out" the line */
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timeline-dot-expandable {
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.timeline-dot-expandable:hover {
+    background-color: var(--primary-hover);
+    transform: translateX(-50%) scale(1.15); /* Keep centered while scaling */
+}
+
+/* Custom chevron arrow using CSS - right when collapsed, down when expanded */
+.timeline-dot-expandable::before {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid white;
+    border-bottom: 2px solid white;
+    /* Center by visual-weight: nudge opposite to pointing direction */
+    transform: translate(-50%, -50%) translate(-1px, -0.5px) rotate(-45deg);
+    transition: transform var(--transition-normal);
+    top: 50%;
+    left: 50%;
+    /* Create a bounding box that centers the visual weight of the chevron */
+    box-sizing: border-box;
+}
+
+.timeline-dot-expandable.expanded::before {
+    /* When pointing down, nudge upward a bit to keep center aligned */
+    transform: translate(-50%, -50%) translate(0px, -1px) rotate(45deg);
+}
+
+.timeline-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.timeline-title {
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    line-height: 1.4;
+    margin-bottom: var(--space-xs);
+}
+
+.timeline-title:hover {
+    color: var(--primary-color);
+}
+
+.timeline-keypoints {
+    margin-top: var(--space-sm);
+    padding-left: var(--space-md);
+    border-left: 2px solid var(--border-color);
+}
+
+.timeline-keypoints.hidden {
+    display: none;
+}
+
+.timeline-keypoint {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    line-height: 1.4;
+    margin-bottom: var(--space-md);
+    padding-left: var(--space-sm);
+    position: relative;
+}
+
+.timeline-keypoint::before {
+    content: '•';
+    position: absolute;
+    left: 0;
+    color: var(--text-muted);
+}
+
+.timeline-keypoint:hover {
+    color: var(--primary-color);
+}
+
+/* New Structured Content Styles */
+.timeline-expandable-content {
+    margin-top: var(--space-sm);
+    padding-left: var(--space-xs);
+    border-left: 2px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.timeline-expandable-content.hidden {
+    display: none;
+}
+
+/* Structured Headings Styles */
+.timeline-heading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+    margin: var(--space-xs) 0;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.timeline-heading:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-hover);
+    transform: translateX(2px);
+}
+
+.heading-marker {
+    background-color: var(--primary-color);
+    color: white;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    min-width: 24px;
+    text-align: center;
+}
+
+.heading-text {
+    flex: 1;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.timeline-heading.level-1 .heading-marker {
+    background-color: var(--primary-color);
+}
+
+.timeline-heading.level-2 .heading-marker {
+    background-color: var(--success-color);
+}
+
+.timeline-heading.level-3 .heading-marker {
+    background-color: var(--warning-color);
+}
+
+.timeline-heading.level-4 .heading-marker {
+    background-color: var(--secondary-color);
+}
+
+/* Theme Groups Styles */
+.timeline-theme {
+    margin: var(--space-sm) 0;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.timeline-theme:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-hover);
+    transform: translateX(2px);
+}
+
+.theme-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.theme-marker {
+    font-size: var(--font-size-lg);
+}
+
+.theme-title {
+    font-weight: 500;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.theme-description {
+    margin-top: var(--space-xs);
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Simple Paragraphs Styles */
+.timeline-paragraph {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    margin: var(--space-xs) 0;
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.timeline-paragraph:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--border-hover);
+    transform: translateX(2px);
+}
+
+.paragraph-marker {
+    color: var(--text-muted);
+    font-weight: 600;
+    min-width: 16px;
+    font-size: var(--font-size-lg);
+}
+
+.paragraph-text {
+    flex: 1;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+/* Error State Styles */
+.timeline-error {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm);
+    margin: var(--space-sm) 0;
+    border-radius: var(--radius-md);
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    color: var(--danger-color);
+}
+
+.error-marker {
+    font-size: var(--font-size-lg);
+}
+
+.error-text {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+/* Timeline Hierarchy Styles*/
+.timeline-hierarchy {
+    margin-top: var(--space-sm);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.timeline-hierarchy-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-xs);
+    border-radius: var(--radius-md);
+    transition: background-color var(--transition-fast), transform var(--transition-fast);
+    cursor: pointer;
+}
+
+.timeline-hierarchy-item.level-0:hover {
+    /* No hover effect for headings */
+    background-color: transparent;
+}
+
+.timeline-hierarchy-item:not(.level-0):hover {
+    background-color: var(--bg-secondary);
+}
+
+.timeline-hierarchy-dot {
+    width: 16px;
+    color: var(--text-muted);
+    flex: 0 0 16px;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.timeline-hierarchy-arrow {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+    flex: 0 0 16px;
+}
+
+.timeline-hierarchy-arrow:hover {
+    background-color: var(--bg-secondary);
+}
+
+.timeline-hierarchy-arrow::before {
+    content: '▶';
+    font-size: 10px;
+    color: var(--text-muted);
+    transition: transform var(--transition-fast), color var(--transition-fast);
+}
+
+.timeline-hierarchy-arrow.expanded::before {
+    transform: rotate(90deg);
+    color: var(--text-primary);
+}
+
+.timeline-hierarchy-text {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: color var(--transition-fast);
+}
+
+.timeline-hierarchy-text:hover {
+    color: var(--primary-color);
+}
+
+/* All hierarchy items use the same font size - no special styling for level-0 */
+
+.timeline-hierarchy-item.level-1 {
+    margin-left: var(--space-sm);
+}
+
+.timeline-hierarchy-item.level-2 {
+    margin-left: calc(var(--space-sm) * 2);
+}
+
+.timeline-hierarchy-item.level-3 {
+    margin-left: calc(var(--space-sm) * 3);
+}
+
+.timeline-hierarchy-divider {
+    height: 0.5px;
+    background-color: var(--border-color);
+    margin: var(--space-sm) 0;
+}
+
+/* Hierarchy Tree */
+.hierarchy-tree {
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+}
+
+.hierarchy-node {
+    margin: var(--space-sm) 0;
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border-left: 4px solid transparent;
+}
+
+.hierarchy-node:hover {
+    background-color: var(--bg-secondary);
+    transform: translateX(4px);
+}
+
+.hierarchy-node.level-0 {
+    font-weight: 600;
+    color: var(--primary-color);
+    border-left-color: var(--primary-color);
+    background-color: rgba(37, 99, 235, 0.05);
+}
+
+.hierarchy-node.level-1 {
+    margin-left: var(--space-lg);
+    color: var(--success-color);
+    border-left-color: var(--success-color);
+    background-color: rgba(5, 150, 105, 0.05);
+}
+
+.hierarchy-node.level-2 {
+    margin-left: calc(var(--space-lg) * 2);
+    color: var(--warning-color);
+    border-left-color: var(--warning-color);
+    background-color: rgba(217, 119, 6, 0.05);
+}
+
+.hierarchy-node.level-3 {
+    margin-left: calc(var(--space-lg) * 3);
+    color: var(--secondary-color);
+    border-left-color: var(--secondary-color);
+    background-color: rgba(100, 116, 139, 0.05);
+}
+
+/* Insight flat list (directory-style) */
+.logical-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.logical-divider {
+    height: 0.5px;
+    background-color: var(--border-color);
+    margin: var(--space-sm) 0;
+}
+
+.logical-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md);
+    border-radius: var(--radius-md);
+    transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.logical-item.level-0:hover {
+    /* No hover effect for headings */
+    background-color: transparent;
+}
+
+.logical-item:not(.level-0):hover {
+    background-color: var(--bg-secondary);
+}
+
+.logical-item .logical-dot {
+    width: 16px;
+    color: var(--text-muted);
+    flex: 0 0 16px;
+    cursor: pointer;
+    transition: color var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Custom chevron arrow for logical view with circular interaction area */
+.logical-item .logical-arrow {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+}
+
+.logical-item .logical-arrow:hover {
+    color: var(--primary-color);
+    background-color: rgba(37, 99, 235, 0.1);
+}
+
+.logical-item .logical-arrow::before {
+    content: '';
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    /* Center by visual-weight: nudge opposite to pointing direction */
+    transform: translate(-50%, -50%) translate(-1px, -0.5px) rotate(-45deg);
+    transition: transform var(--transition-normal);
+    top: 50%;
+    left: 50%;
+    /* Create a bounding box that centers the visual weight of the chevron */
+    box-sizing: border-box;
+}
+
+.logical-item .logical-arrow.expanded::before {
+    /* When pointing down, nudge upward a bit to keep center aligned */
+    transform: translate(-50%, -50%) translate(0px, -1px) rotate(45deg);
+}
+
+.logical-item .logical-text {
+    color: var(--text-primary);
+}
+
+.logical-item.level-0 {
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-left: var(--space-sm);
+}
+
+.logical-item.level-1 { padding-left: calc(var(--space-md) + 12px); }
+.logical-item.level-2 { padding-left: calc(var(--space-md) * 2 + 16px); }
+.logical-item.level-3 { padding-left: calc(var(--space-md) * 3 + 20px); }
+
+/* Outline view styles */
+.echonav-outline-header {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin: 8px 0;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+    z-index: 1000;
+}
+
+/* Removed hover effect for outline headers */
+
+.echonav-outline-header.expanded {
+    background-color: #d1ecf1;
+    border-color: #bee5eb;
+}
+
+.echonav-outline-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.echonav-outline-number {
+    background-color: #007bff;
+    color: white;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+    flex-shrink: 0;
+}
+
+.echonav-outline-title {
+    flex: 1;
+    font-weight: 500;
+    color: #333;
+    line-height: 1.4;
+}
+
+.echonav-outline-toggle {
+    color: #666;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+/* Responsive Design */
+@media (min-width: 400px) {
+    .action-btn .text {
+        display: inline;
+    }
+    
+    .tab-btn {
+        flex-direction: row;
+        gap: var(--space-sm);
+    }
+    
+    .tab-label {
+        text-transform: none;
+        letter-spacing: normal;
+    }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--border-hover);
+}
+
+/* Focus States for Accessibility */
+button:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+/* Animation for smooth transitions */
+.tab-panel {
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* More Options Button */
+.more-options-btn {
+    position: absolute;
+    bottom: 80px; /* Above the bottom navigation */
+    right: var(--space-lg);
+    width: 40px;
+    height: 40px;
+    background-color: white;
+    border: 1px solid var(  --border-color);
+    border-radius: 50%;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    box-shadow: var(--shadow-md);
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.more-options-btn:hover {
+    transform: scale(1.1);
+    border-color: var(  --border-color);
+    color: var(--text-secondary);
+    box-shadow: var(--shadow-lg);
+}
+
+.more-dots {
+    font-size: 1.2rem;
+    font-weight: bold;
+    line-height: 1;
+}
+
+/* More Options Popup */
+.more-options-popup {
+    position: fixed;
+    bottom: 140px; /* Above the more button */
+    right: var(--space-lg);
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 25;
+    min-width: 160px;
+    overflow: hidden;
+    animation: popupSlideIn 0.2s ease-out;
+}
+
+@keyframes popupSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.popup-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: var(--space-md) var(--space-lg);
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+    font-size: var(--font-size-sm);
+}
+
+.popup-option:hover {
+    background-color: var(--bg-secondary);
+}
+
+.popup-option.toggle-option {
+    justify-content: space-between;
+    cursor: default;
+}
+
+.popup-icon {
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+}
+
+.popup-text {
+    flex: 1;
+}
+
+
+/* Settings Styles */
+.setting-group {
+    margin-bottom: var(--space-xl);
+}
+
+.setting-group h3 {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 var(--space-md) 0;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: var(--space-sm);
+}
+
+.setting-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-md) 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.setting-item:last-child {
+    border-bottom: none;
+}
+
+.setting-item .setting-label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.setting-item .setting-description {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    margin-top: var(--space-xs);
+}

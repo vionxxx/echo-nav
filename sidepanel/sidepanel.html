@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EchoNav - Conversation Outline Navigator</title>
+    <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body role="application" aria-label="EchoNav Conversation Navigator">
+    <!-- Header Section -->
+    <header class="app-header" role="banner">
+        <div class="header-brand">
+            <img src="../EchoNav_Logo.png" alt="EchoNav Logo" class="logo" />
+            <h1 id="app-title">EchoNav</h1>
+        </div>
+        <div class="header-actions">
+            <button id="outline-view-button" class="action-btn" aria-label="Enter fullscreen mode to view outline overlay">
+                <span class="icon" aria-hidden="true">⛶</span>
+                <span class="text">Enter Fullscreen</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="app-main" role="presentation">
+        <!-- Content Areas -->
+        <div class="content-container" role="presentation">
+            <!-- Flow Tab -->
+            <section id="timeline-tab" class="tab-panel active" role="tabpanel" aria-labelledby="flow-tab-label">
+                <div id="welcome-message" class="welcome-state">
+                    <div class="welcome-icon" aria-hidden="true">✨</div>
+                    <h2>Welcome to EchoNav</h2>
+                    <p>Generate a structured outline of your conversation to navigate and understand the discussion better.</p>
+                    <button id="generate-button" class="primary-btn">
+                        <span class="btn-icon" aria-hidden="true">🚀</span>
+                        Generate Outline
+                    </button>
+                </div>
+
+                <div id="error-message" class="error-state hidden">
+                    <div class="error-icon" aria-hidden="true">⚠️</div>
+                    <h3>Something went wrong</h3>
+                    <p class="error-text"></p>
+                    <button id="retry-button" class="secondary-btn">Try Again</button>
+                </div>
+
+                <div id="loading-spinner" class="loading-state hidden">
+                    <div class="spinner"></div>
+                    <p>Generating outline...</p>
+                </div>
+
+                <div id="outline" class="outline-content" role="presentation"></div>
+            </section>
+            
+            <!-- ARIA Live Region for Screen Reader Announcements -->
+            <div id="aria-announcements" 
+                 role="status" 
+                 aria-live="polite" 
+                 aria-atomic="true"
+                 style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;">
+            </div>
+
+            <!-- Insight Tab -->
+            <section id="logical-tab" class="tab-panel" role="tabpanel" aria-labelledby="insight-tab-label">
+                <div id="logical-content" class="panel-content" role="presentation">
+                    <div id="insight-welcome" class="welcome-state">
+                        <div class="welcome-icon" aria-hidden="true">🧠</div>
+                        <h2>Generate Insight</h2>
+                        <p>Create a hierarchical structure from your Flow timeline to better understand the conversation.</p>
+                        <button id="generate-logical-button" class="primary-btn">
+                            <span class="btn-icon" aria-hidden="true">🚀</span>
+                            Generate Insight
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Setting Tab -->
+            <section id="setting-tab" class="tab-panel" role="tabpanel" aria-labelledby="setting-tab-label">
+                <div class="panel-content">
+                    <div class="setting-group">
+                        <h3>General</h3>
+                        <div class="setting-item">
+                            <span class="setting-label">Auto-update</span>
+                            <span class="setting-description" id="auto-update-desc">Automatically update when new messages are detected</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-update-toggle" checked aria-describedby="auto-update-desc">
+                                <span class="switch-slider" aria-hidden="true"></span>
+                            </label>
+                        </div>
+                        <div class="setting-item">
+                            <span class="setting-label">Show keypoints in fullscreen</span>
+                            <span class="setting-description" id="keypoints-desc">Display keypoints when in fullscreen mode</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="show-keypoints-toggle" checked aria-describedby="keypoints-desc">
+                                <span class="switch-slider" aria-hidden="true"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <h3>About</h3>
+                        <div class="setting-item">
+                            <span class="setting-label">EchoNav Extension</span>
+                            <span class="setting-description">Version 1.0.0</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Bottom Navigation Tabs -->
+    <nav class="bottom-tab-nav" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn active" data-tab="timeline" role="tab" aria-selected="true" aria-controls="timeline-tab" id="flow-tab-label">
+            <span class="tab-icon" aria-hidden="true">📋</span>
+            <span class="tab-label">Flow</span>
+        </button>
+        <button class="tab-btn" data-tab="logical" role="tab" aria-selected="false" aria-controls="logical-tab" id="insight-tab-label">
+            <span class="tab-icon" aria-hidden="true">🧠</span>
+            <span class="tab-label">Insight</span>
+        </button>
+        <button class="tab-btn" data-tab="setting" role="tab" aria-selected="false" aria-controls="setting-tab" id="setting-tab-label">
+            <span class="tab-icon" aria-hidden="true">⚙️</span>
+            <span class="tab-label">Setting</span>
+        </button>
+    </nav>
+
+    <!-- More Options Button -->
+    <button id="more-options-btn" class="more-options-btn" aria-label="More options" aria-expanded="false" aria-haspopup="menu">
+        <span class="more-dots" aria-hidden="true">⋯</span>
+    </button>
+
+    <!-- More Options Popup -->
+    <div id="more-options-popup" class="more-options-popup hidden" role="menu" aria-labelledby="more-options-btn">
+        <button id="regenerate-option" class="popup-option" role="menuitem">
+            <span class="popup-icon" aria-hidden="true">🔄</span>
+            <span class="popup-text">Regenerate</span>
+        </button>
+        <button id="share-option" class="popup-option" role="menuitem">
+            <span class="popup-icon" aria-hidden="true">📤</span>
+            <span class="popup-text">Share</span>
+        </button>
+        <button id="read-option" class="popup-option" role="menuitem">
+            <span class="popup-icon" aria-hidden="true">🔊</span>
+            <span class="popup-text">Read</span>
+        </button>
+    </div>
+
+    <!-- ARIA live region for screen reader announcements -->
+    <div id="aria-announcements" aria-live="polite" aria-atomic="true" style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;"></div>
+
+    <script src="sidepanel.js"></script>
+    <script src="accessibility.js"></script>
+</body>
+</html>

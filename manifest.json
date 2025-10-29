@@ -1,23 +1,34 @@
 {
     "manifest_version": 3,
-    "name": "TreeAI",
-    "version": "0.1",
-    "description": "An AI-powered Chrome Extension demo for Google Chrome AI 2025 hackathon.",
-    "permissions": ["storage", "activeTab", "scripting"],
+    "name": "EchoNav",
+    "version": "1.0",
+    "description": "A Chrome extension that uses built-in AI to generate a dynamic, multi-level hierarchy outline from AI conversation histories.",
+    "permissions": ["storage", "tts", "activeTab", "scripting"],
+    "host_permissions": [
+        "https://chatgpt.com/*",
+        "https://grok.com/*"
+    ],
     "background": {
       "service_worker": "background.js"
     },
     "content_scripts": [
       {
-        "matches": ["<all_urls>"],
-        "js": ["content.js"]
+         "matches": [
+          "https://chatgpt.com/*",
+          "https://grok.com/*"
+        ],
+        "js": ["content.js"],
+        "css": ["sidepanel/sidepanel.css"]
       }
     ],
-    "side_panel": {
-      "default_path": "sidepanel/sidepanel.html"
-    },
+    "web_accessible_resources": [
+      {
+        "resources": ["sidepanel/sidepanel.html"],
+        "matches": ["https://chatgpt.com/*", "https://grok.com/*"]
+      }
+    ],
     "action": {
-      "default_title": "Open AI Side Panel"
+      "default_title": "Toggle EchoNav"
     }
   }
   
