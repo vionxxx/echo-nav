@@ -14,6 +14,8 @@ if (typeof chrome !== 'undefined' && chrome.runtime) {
 let responseObserver = null;
 let lastResponseElement = null;
 let activeMonitoringTimers = new Set();
+let currentResponseData = null; // Store current response data for user options
+let responseOptionsKeyHandler = null; // Store keyboard handler for cleanup
 
 // ===== VOICEOVER OPTIMIZATION FOR CHATGPT RESPONSES =====
 // Strategy: Disable ChatGPT's aria-live, announce status, then read key points
@@ -61,6 +63,41 @@ function announceToScreenReader(message) {
 var treeUIIframe = window.treeUIIframe || null;
 window.treeUIIframe = treeUIIframe;
 
+// Function to clear all DOM markers for fresh extraction during regeneration
+function clearAllDOMMarkers() {
+    console.log("EchoNav: Starting to clear all DOM markers");
+    
+    // Clear all data-echonav-id markers from message elements
+    const elementsWithId = document.querySelectorAll('[data-echonav-id]');
+    console.log(`EchoNav: Found ${elementsWithId.length} elements with data-echonav-id`);
+    elementsWithId.forEach(el => {
+        el.removeAttribute('data-echonav-id');
+    });
+    
+    // Clear all heading markers
+    const elementsWithHeadingId = document.querySelectorAll('[data-echonav-heading-id]');
+    console.log(`EchoNav: Found ${elementsWithHeadingId.length} elements with data-echonav-heading-id`);
+    elementsWithHeadingId.forEach(el => {
+        el.removeAttribute('data-echonav-heading-id');
+    });
+    
+    // Clear all paragraph markers
+    const elementsWithParagraphId = document.querySelectorAll('[data-echonav-paragraph-id]');
+    console.log(`EchoNav: Found ${elementsWithParagraphId.length} elements with data-echonav-paragraph-id`);
+    elementsWithParagraphId.forEach(el => {
+        el.removeAttribute('data-echonav-paragraph-id');
+    });
+    
+    // Clear all monitored markers from response monitoring
+    const elementsWithMonitored = document.querySelectorAll('[data-echonav-monitored]');
+    console.log(`EchoNav: Found ${elementsWithMonitored.length} elements with data-echonav-monitored`);
+    elementsWithMonitored.forEach(el => {
+        el.removeAttribute('data-echonav-monitored');
+    });
+    
+    console.log("EchoNav: ✅ All DOM markers cleared for fresh extraction");
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("EchoNav received message:", request.action);
     
@@ -70,6 +107,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === "ping") {
         console.log("EchoNav: Pong! Content script is ready");
         sendResponse({ status: "ready", url: window.location.href });
+    } else if (request.action === "clearDOMMarkers") {
+        console.log("EchoNav: Clearing all DOM markers for fresh extraction");
+        clearAllDOMMarkers();
+        sendResponse({ success: true });
     } else if (request.action === "extractText") {
       console.log("EchoNav extracting conversation...");
       const conversation = extractConversation();
@@ -216,6 +257,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep the message channel open for async response
   });
 
+  // Helper function to clean text for matching: remove emojis and standardize numbering
+  function cleanTextForMatching(text) {
+    if (!text) return '';
+    
+    // Step 1: Remove all emojis (comprehensive Unicode emoji ranges)
+    let cleaned = text.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{FE00}-\u{FE0F}]|[\u{200D}]/gu, '');
+    
+    // Step 2: Standardize numbering formats to "1. 2. 3." format
+    // Pattern: (1) or （1） -> 1.
+    cleaned = cleaned.replace(/[（(]\s*(\d+)\s*[）)]/g, '$1.');
+    
+    // Pattern: Roman numerals (I, II, III, IV, etc.) at start -> convert to Arabic
+    const romanToArabic = { 'I': '1', 'II': '2', 'III': '3', 'IV': '4', 'V': '5', 
+                           'VI': '6', 'VII': '7', 'VIII': '8', 'IX': '9', 'X': '10' };
+    cleaned = cleaned.replace(/^([IVX]+)\.\s*/i, (match, roman) => {
+      const arabic = romanToArabic[roman.toUpperCase()];
+      return arabic ? arabic + '. ' : match;
+    });
+    
+    // Pattern: Circled numbers ① ② ③ -> 1. 2. 3.
+    cleaned = cleaned.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, (match) => {
+      const circledNumbers = '①②③④⑤⑥⑦⑧⑨⑩';
+      const index = circledNumbers.indexOf(match);
+      return index >= 0 ? (index + 1) + '. ' : match;
+    });
+    
+    // Pattern: Chinese numbers 一、二、三、 -> 1. 2. 3.
+    const chineseToArabic = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
+                             '六': '6', '七': '7', '八': '8', '九': '9', '十': '10' };
+    cleaned = cleaned.replace(/^([一二三四五六七八九十])、/g, (match, chinese) => {
+      const arabic = chineseToArabic[chinese];
+      return arabic ? arabic + '. ' : match;
+    });
+    
+    // Step 3: Normalize multiple spaces and trim
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    
+    return cleaned;
+  }
+
   // Helper function to find heading element with robust fallback strategies
   function findHeadingElement(headingId, headingText) {
     console.log(`EchoNav: Looking for heading with ID: ${headingId}, text: "${headingText}"`);
@@ -232,12 +313,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const allHeadings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
         console.log(`EchoNav: Searching among ${allHeadings.length} headings for text match`);
         
-        // Clean the target text (remove emojis like we do in sidepanel)
-        const cleanTargetText = headingText.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+        // Clean the target text (remove emojis and standardize numbering)
+        const cleanTargetText = cleanTextForMatching(headingText);
         
         for (let i = 0; i < allHeadings.length; i++) {
             const heading = allHeadings[i];
-            const headingTextClean = heading.textContent.trim();
+            // Also clean the heading text from DOM for proper comparison
+            const headingTextClean = cleanTextForMatching(heading.textContent);
             
             console.log(`EchoNav: Comparing "${cleanTargetText}" with "${headingTextClean}"`);
             
@@ -441,8 +523,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         console.log(`EchoNav: Found ${headings.length} headings`);
         
-        if (headings.length > 0) {
-            console.log(`EchoNav: ✅ CASE A - STRUCTURED RESPONSE: Found ${headings.length} headings`);
+        // IMPORTANT: Only treat as structured if there are 2+ headings
+        // A single heading is likely just a title and should be treated as plain text
+        if (headings.length >= 2) {
+            console.log(`EchoNav: ✅ CASE A - STRUCTURED RESPONSE: Found ${headings.length} headings (≥2)`);
             console.log("EchoNav: Heading tags found:", Array.from(headings).map(h => h.tagName));
             
             // Extract heading structure from headings only
@@ -490,8 +574,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 totalWordCount: totalWords
             };
         } else {
-            // No headings found, analyze paragraph structure
-            console.log("EchoNav: ⚠️ CASE B - PLAIN TEXT RESPONSE: No headings found, analyzing paragraphs");
+            // No headings found OR only 1 heading (treated as plain text), analyze paragraph structure
+            if (headings.length === 1) {
+                console.log("EchoNav: ⚠️ CASE B - PLAIN TEXT RESPONSE: Only 1 heading found (treating as plain text title), analyzing paragraphs");
+            } else {
+                console.log("EchoNav: ⚠️ CASE B - PLAIN TEXT RESPONSE: No headings found, analyzing paragraphs");
+            }
             
             const paragraphs = contentElement.querySelectorAll('p');
             const paragraphContent = [];
@@ -792,6 +880,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     console.log("EchoNav: Entering outline view mode with", outlineItems.length, "items");
     
+    // Add body class to hide inline keypoints during fullscreen
+    document.body.classList.add('echonav-fullscreen-active');
+      
     // Add outline view styles
     addOutlineViewStyles();
     
@@ -944,6 +1035,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     isOutlineViewActive = false;
     console.log("EchoNav: Outline view mode deactivated");
+    
+    // Remove body class to show inline keypoints again
+    document.body.classList.remove('echonav-fullscreen-active');
+    
     removeFloatingButton(); // Also remove floating button on exit
   }
 
@@ -977,7 +1072,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
       const floatingButton = document.createElement('div');
       floatingButton.id = 'echonav-floating-btn';
-      floatingButton.textContent = '🌳';
+      
+      // Use logo as background image instead of emoji
+      const logoImg = document.createElement('img');
+      logoImg.src = chrome.runtime.getURL('icons/icon128.png');
+      logoImg.alt = 'EchoNav Logo';
+      logoImg.style.cssText = `
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 50%;
+      `;
+      
+      // Add error handling - fallback to emoji if logo fails to load
+      logoImg.onerror = function() {
+          console.log('EchoNav: Logo failed to load, using fallback');
+          floatingButton.removeChild(logoImg);
+          floatingButton.textContent = '🌳';
+          floatingButton.style.fontSize = '28px';
+          floatingButton.style.backgroundColor = '#2563eb';
+          floatingButton.style.color = 'white';
+      };
+      
+      // Add success handler for debugging
+      logoImg.onload = function() {
+          console.log('EchoNav: Logo loaded successfully');
+      };
+      
+      floatingButton.appendChild(logoImg);
 
       const floatingOptions = document.createElement('div');
       floatingOptions.id = 'echonav-floating-options';
@@ -1054,8 +1176,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           #echonav-floating-btn {
               width: 60px;
               height: 60px;
-              background-color: #2563eb;
-              color: white;
               border-radius: 50%;
               display: flex;
               align-items: center;
@@ -1064,6 +1184,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               cursor: pointer;
               box-shadow: 0 4px 12px rgba(0,0,0,0.2);
               transition: transform 0.2s ease;
+              overflow: hidden;
           }
           #echonav-floating-container:hover #echonav-floating-btn {
               transform: scale(1.1);
@@ -1731,30 +1852,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const keyPoints = await generateKeyPointsFromAPI(responseText);
         console.log("EchoNav: Generated key points from API:", keyPoints);
 
-        // Step 4: Announce key points via VoiceOver
-        const finalAnnouncement = createCompletionAnnouncement(wordCount, keyPoints);
-        console.log("EchoNav: Final announcement prepared:", finalAnnouncement);
+        // Step 4: Insert visual keypoints in ChatGPT interface (with persistence)
+        insertVisualKeyPoints(responseElement, keyPoints);
+
+        // Step 5: Store current response data for user options
+        currentResponseData = {
+            responseElement: responseElement,
+            responseText: responseText,
+            wordCount: wordCount,
+            keyPoints: keyPoints
+        };
         
-        // Clear status and announce key points after a short delay
-        setTimeout(() => {
-            // Clear previous announcement
-            announceToScreenReader('');
-            
-            // Announce key points via our ARIA live region
-            setTimeout(() => {
-                announceToScreenReader(finalAnnouncement);
-                console.log("EchoNav: ✅ Key points announced via VoiceOver");
-                console.log("EchoNav: VoiceOver will read keypoints completely. Page state will NOT be restored automatically to avoid interruption.");
-                console.log("EchoNav: ChatGPT's aria-live regions remain disabled until next response or user navigation.");
+        // Step 6: Set up keyboard handler for user options
+        setupResponseOptionsKeyHandler();
+
+        // Step 7: Announce key points via VoiceOver (only if enabled)
+        chrome.storage.local.get(['voiceOverOptimizationEnabled'], (result) => {
+            if (result.voiceOverOptimizationEnabled !== false) {
+                const finalAnnouncement = createCompletionAnnouncement(wordCount, keyPoints);
+                console.log("EchoNav: Final announcement prepared:", finalAnnouncement);
                 
-                // DO NOT restore page state automatically - this would interrupt VoiceOver's reading
-                // The aria-live regions will be restored when:
-                // 1. A new AI response starts (detected by response monitoring)
-                // 2. User navigates away or interacts with the page
-                // This ensures VoiceOver can read all keypoints completely without interruption
-                
-            }, 200);
-        }, 800);
+                // Clear status and announce key points after a short delay
+                setTimeout(() => {
+                    // Clear previous announcement
+                    announceToScreenReader('');
+                    
+                    // Announce key points via our ARIA live region
+                    setTimeout(() => {
+                        announceToScreenReader(finalAnnouncement);
+                        console.log("EchoNav: ✅ Key points announced via VoiceOver");
+                        console.log("EchoNav: User can now press VO+R to read full answer or VO+T to navigate to timeline");
+                    }, 200);
+                }, 800);
+            }
+        });
         
     } catch (error) {
         console.error("EchoNav: Error in VoiceOver optimization:", error);
@@ -1772,6 +1903,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             announcement += `${number}, ${point}. `;
         });
     }
+    
+    // Add options prompt after keypoints
+    announcement += `Press VO+R to read the full answer, or press VO+T to navigate to timeline view for this turn. `;
     
     return announcement;
   }
@@ -1838,16 +1972,473 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
   }
 
-  // Start monitoring when content script loads (with user preference check)
-  setTimeout(() => {
-    chrome.storage.local.get(['voiceOverOptimizationEnabled'], (result) => {
-        // Default to enabled (true) if not set
-        if (result.voiceOverOptimizationEnabled !== false) {
-            console.log("EchoNav: Starting VoiceOver optimization (enabled by default)");
-            startResponseMonitoring();
-        } else {
-            console.log("EchoNav: VoiceOver optimization disabled by user");
+  // ===== VISUAL KEYPOINTS INSERTION WITH PERSISTENCE =====
+  
+  function insertVisualKeyPoints(responseElement, keyPoints) {
+    console.log("EchoNav: Inserting visual keypoints in ChatGPT interface");
+    
+    if (!keyPoints || keyPoints.length === 0) {
+        console.warn("EchoNav: No keypoints to insert");
+        return;
+    }
+    
+    // Ensure we have exactly 3 keypoints
+    const displayKeyPoints = keyPoints.slice(0, 3);
+    
+    // Find the message container for persistence
+    let messageContainer = responseElement;
+    while (messageContainer && messageContainer !== document.body) {
+        const hasMessageRole = messageContainer.hasAttribute('data-message-author-role');
+        if (hasMessageRole && messageContainer.getAttribute('data-message-author-role') === 'assistant') {
+            break;
+        }
+        messageContainer = messageContainer.parentElement;
+    }
+    
+    if (!messageContainer || messageContainer === document.body) {
+        console.warn("EchoNav: Could not find message container for persistence");
+        messageContainer = responseElement.parentElement;
+    }
+    
+    // Check if keypoints already exist for this response (prevent duplicates)
+    const existingKeyPoints = messageContainer.nextElementSibling?.classList.contains('echonav-inline-keypoints');
+    if (existingKeyPoints) {
+        console.log("EchoNav: Keypoints already exist for this response, skipping insertion");
+        return;
+    }
+    
+    // Store keypoints in message container for persistence
+    messageContainer.setAttribute('data-echonav-has-keypoints', 'true');
+    messageContainer.setAttribute('data-echonav-keypoints', JSON.stringify(displayKeyPoints));
+    
+    // Create and insert keypoints UI
+    createKeyPointsUI(messageContainer, displayKeyPoints);
+  }
+  
+  function createKeyPointsUI(messageContainer, keyPoints) {
+    // Create keypoints container (matching fullscreen mode style, but wider)
+    const keyPointsContainer = document.createElement('div');
+    keyPointsContainer.className = 'echonav-inline-keypoints';
+    keyPointsContainer.setAttribute('role', 'complementary');
+    keyPointsContainer.setAttribute('aria-label', 'EchoNav Key Points Summary');
+    
+    // Add header
+    const header = document.createElement('div');
+    header.className = 'echonav-inline-keypoints-header';
+    header.innerHTML = '<span class="echonav-logo">🔷</span><span class="echonav-header-text">EchoNav Summary</span>';
+    keyPointsContainer.appendChild(header);
+    
+    // Add each keypoint
+    keyPoints.forEach((keyPoint, index) => {
+        const keyPointDiv = document.createElement('div');
+        keyPointDiv.className = 'echonav-inline-keypoint';
+        keyPointDiv.setAttribute('role', 'listitem');
+        
+        // Add bullet point marker
+        const bullet = document.createElement('span');
+        bullet.className = 'echonav-keypoint-bullet';
+        bullet.textContent = '•';
+        bullet.setAttribute('aria-hidden', 'true');
+        
+        // Add keypoint text
+        const text = document.createElement('span');
+        text.className = 'echonav-keypoint-text';
+        text.textContent = keyPoint;
+        
+        keyPointDiv.appendChild(bullet);
+        keyPointDiv.appendChild(text);
+        keyPointsContainer.appendChild(keyPointDiv);
+        
+        console.log(`EchoNav: Added visual keypoint ${index + 1}: "${keyPoint}"`);
+    });
+    
+    // Insert after the message container
+    if (messageContainer && messageContainer.parentElement) {
+        messageContainer.parentElement.insertBefore(keyPointsContainer, messageContainer.nextSibling);
+        console.log("EchoNav: ✅ Visual keypoints inserted successfully");
+        
+        // Add styles if not already added
+        addInlineKeyPointsStyles();
+    }
+  }
+  
+  function addInlineKeyPointsStyles() {
+    // Check if styles already exist
+    if (document.getElementById('echonav-inline-keypoints-styles')) {
+        return;
+    }
+    
+    const styles = document.createElement('style');
+    styles.id = 'echonav-inline-keypoints-styles';
+    styles.textContent = `
+        /* EchoNav Inline KeyPoints Styles - Full Width */
+        .echonav-inline-keypoints {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin: 20px 0;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .echonav-inline-keypoints-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .echonav-logo {
+            font-size: 20px;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+        }
+        
+        .echonav-header-text {
+            font-size: 15px;
+            font-weight: 600;
+            color: white;
+            letter-spacing: 0.5px;
+        }
+        
+        .echonav-inline-keypoint {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin: 12px 0;
+            padding-left: 4px;
+        }
+        
+        .echonav-keypoint-bullet {
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            line-height: 1.5;
+            flex-shrink: 0;
+            margin-top: -2px;
+        }
+        
+        .echonav-keypoint-text {
+            color: white;
+            font-size: 15px;
+            line-height: 1.6;
+            flex: 1;
+        }
+        
+        /* Hide when in fullscreen mode */
+        body.echonav-fullscreen-active .echonav-inline-keypoints {
+            display: none;
+        }
+        
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .echonav-inline-keypoints {
+                background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+                box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
+            }
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .echonav-inline-keypoints {
+                padding: 16px 18px;
+                margin: 16px 0;
+            }
+            
+            .echonav-inline-keypoint {
+                gap: 10px;
+            }
+        }
+    `;
+    
+    document.head.appendChild(styles);
+    console.log("EchoNav: ✅ Inline keypoints styles added");
+  }
+  
+  // Restore keypoints on page load (for persistence after switching conversations)
+  function restoreInlineKeyPoints() {
+    console.log("EchoNav: 🔄 Restoring inline keypoints from DOM persistence");
+    
+    // Find all assistant messages that have keypoints data but no visual UI
+    const messagesWithKeyPoints = document.querySelectorAll('[data-echonav-has-keypoints="true"]');
+    console.log(`EchoNav: Found ${messagesWithKeyPoints.length} messages with stored keypoints data`);
+    
+    if (messagesWithKeyPoints.length === 0) {
+        console.log("EchoNav: No messages with keypoints data found");
+        return;
+    }
+    
+    let restoredCount = 0;
+    let alreadyExistsCount = 0;
+    
+    messagesWithKeyPoints.forEach((messageContainer, index) => {
+        // Check if keypoints UI already exists
+        const nextElement = messageContainer.nextElementSibling;
+        if (nextElement && nextElement.classList.contains('echonav-inline-keypoints')) {
+            console.log(`EchoNav: Message ${index + 1}: Keypoints UI already exists ✓`);
+            alreadyExistsCount++;
+            return;
+        }
+        
+        try {
+            const keyPointsData = messageContainer.getAttribute('data-echonav-keypoints');
+            if (keyPointsData) {
+                const keyPoints = JSON.parse(keyPointsData);
+                console.log(`EchoNav: Message ${index + 1}: Restoring ${keyPoints.length} keypoints...`);
+                createKeyPointsUI(messageContainer, keyPoints);
+                restoredCount++;
+                console.log(`EchoNav: Message ${index + 1}: ✅ Restored successfully`);
+            } else {
+                console.warn(`EchoNav: Message ${index + 1}: Has marker but no keypoints data`);
+            }
+        } catch (error) {
+            console.error(`EchoNav: Message ${index + 1}: Error restoring keypoints:`, error);
         }
     });
+    
+    console.log(`EchoNav: 📊 Restoration summary: ${restoredCount} restored, ${alreadyExistsCount} already existed, ${messagesWithKeyPoints.length} total`);
+  }
+
+  // ===== POST-KEYPOINTS USER OPTIONS =====
+  
+  function setupResponseOptionsKeyHandler() {
+    // Remove existing handler if any
+    if (responseOptionsKeyHandler) {
+        document.removeEventListener('keydown', responseOptionsKeyHandler);
+    }
+    
+    // Create new handler with VoiceOver-compatible shortcuts
+    responseOptionsKeyHandler = (event) => {
+        // Only handle if we have current response data
+        if (!currentResponseData) return;
+        
+        // Improved input detection - ignore if user is typing in any editable element
+        const target = event.target;
+        if (target.tagName === 'INPUT' || 
+            target.tagName === 'TEXTAREA' || 
+            target.isContentEditable ||
+            target.closest('[contenteditable="true"]') ||
+            target.closest('textarea') ||
+            target.closest('input')) {
+            return;
+        }
+        
+        // Check for VoiceOver modifier keys (Control + Option on macOS)
+        const isVoiceOverModifier = event.ctrlKey && event.altKey;
+        const key = event.key.toLowerCase();
+        
+        if (isVoiceOverModifier && key === 'r') {
+            // VO+R: Read full answer
+            event.preventDefault();
+            event.stopPropagation();
+            console.log("EchoNav: User pressed VO+R - reading full answer");
+            readFullAnswer();
+        } else if (isVoiceOverModifier && key === 't') {
+            // VO+T: Navigate to timeline view
+            event.preventDefault();
+            event.stopPropagation();
+            console.log("EchoNav: User pressed VO+T - navigating to timeline view");
+            navigateToTimelineView();
+        }
+    };
+    
+    // Add listener
+    document.addEventListener('keydown', responseOptionsKeyHandler);
+    console.log("EchoNav: Keyboard handler set up for response options (VO+R/VO+T)");
+  }
+  
+  function readFullAnswer() {
+    if (!currentResponseData) {
+        console.warn("EchoNav: No current response data available");
+        announceToScreenReader("No response available to read");
+        return;
+    }
+    
+    const { responseText, responseElement } = currentResponseData;
+    
+    // Announce that we're reading the full answer
+    announceToScreenReader("Reading full answer. Press Escape to stop.");
+    
+    // Focus on the response element for VoiceOver to read
+    if (responseElement) {
+        // Make element focusable if not already
+        if (!responseElement.hasAttribute('tabindex')) {
+            responseElement.setAttribute('tabindex', '-1');
+        }
+        
+        // Add aria-label for better screen reader support
+        responseElement.setAttribute('aria-label', `Full ChatGPT response: ${responseText.substring(0, 100)}...`);
+        
+        // Small delay before focusing to let announcement complete
+        setTimeout(() => {
+            responseElement.focus();
+            console.log("EchoNav: Focused on response element for VoiceOver to read");
+            
+            // Optional: Use Web Speech API as a backup for reading
+            // This gives users TTS control even if VoiceOver reading doesn't work as expected
+            setTimeout(() => {
+                const utterance = new SpeechSynthesisUtterance(responseText);
+                utterance.rate = 0.9; // Slightly slower for comprehension
+                utterance.lang = 'en-US';
+                
+                utterance.onstart = () => {
+                    console.log("EchoNav: Started reading full answer via TTS");
+                };
+                
+                utterance.onend = () => {
+                    console.log("EchoNav: Finished reading full answer");
+                    announceToScreenReader("Finished reading full answer. Press VO+R to read again, or VO+T to navigate to timeline.");
+                };
+                
+                utterance.onerror = (error) => {
+                    console.error("EchoNav: TTS error:", error);
+                };
+                
+                // Optional: Only use TTS if explicitly requested
+                // For now, relying on VoiceOver focus is the primary method
+                // speechSynthesis.speak(utterance);
+                
+            }, 1000);
+        }, 500);
+    }
+  }
+  
+  function navigateToTimelineView() {
+    if (!currentResponseData) {
+        console.warn("EchoNav: No current response data available");
+        announceToScreenReader("No response available to navigate");
+        return;
+    }
+    
+    // Announce navigation intent
+    announceToScreenReader("Opening Timeline View. You can navigate the conversation structure using arrow keys.");
+    
+    // Strategy: Open/show the sidepanel iframe and trigger outline generation if needed
+    setTimeout(() => {
+        // Option 1: If iframe exists, show it and send message to focus on latest turn
+        if (treeUIIframe) {
+            // Show iframe if hidden
+            if (treeUIIframe.style.display === 'none') {
+                treeUIIframe.style.display = 'block';
+                
+                // Adjust main container margin
+                const mainContainer = document.querySelector('main')?.parentElement;
+                if (mainContainer) {
+                    mainContainer.style.marginRight = '380px';
+                }
+            }
+            
+            // Send message to iframe to focus on the latest timeline item
+            try {
+                treeUIIframe.contentWindow.postMessage({
+                    action: 'focusLatestTimelineItem'
+                }, '*');
+                console.log("EchoNav: Sent message to iframe to focus latest timeline item");
+            } catch (error) {
+                console.error("EchoNav: Error sending message to iframe:", error);
+            }
+            
+        } else {
+            // Option 2: Create iframe if it doesn't exist
+            console.log("EchoNav: Creating iframe for timeline navigation");
+            toggleEchoNavUI();
+            
+            // Wait for iframe to load, then send focus message
+            setTimeout(() => {
+                if (treeUIIframe && treeUIIframe.contentWindow) {
+                    try {
+                        treeUIIframe.contentWindow.postMessage({
+                            action: 'focusLatestTimelineItem'
+                        }, '*');
+                    } catch (error) {
+                        console.error("EchoNav: Error sending message to iframe:", error);
+                    }
+                }
+            }, 1000);
+        }
+        
+        // Announce completion
+        setTimeout(() => {
+            announceToScreenReader("Timeline View opened. Use Tab to navigate to the panel, then use arrow keys to explore conversation turns.");
+        }, 1500);
+        
+    }, 500);
+  }
+
+  // Start monitoring when content script loads
+  // Note: Monitoring runs always to insert visual keypoints, not just for VoiceOver
+  setTimeout(() => {
+    console.log("EchoNav: Starting response monitoring for visual keypoints and VoiceOver optimization");
+    startResponseMonitoring();
+    
+    // Restore keypoints on page load
+    restoreInlineKeyPoints();
+    
+    // Set up MutationObserver to restore keypoints when navigating between conversations
+    const conversationObserver = new MutationObserver((mutations) => {
+        // Check for any DOM changes that might indicate conversation switch
+        mutations.forEach(mutation => {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                mutation.addedNodes.forEach(node => {
+                    // Check if new assistant messages were added
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const hasKeypoints = node.hasAttribute && node.hasAttribute('data-echonav-has-keypoints');
+                        const containsKeypoints = node.querySelector && node.querySelector('[data-echonav-has-keypoints]');
+                        
+                        if (hasKeypoints || containsKeypoints) {
+                            console.log("EchoNav: Detected messages with keypoints data via MutationObserver");
+                            setTimeout(() => restoreInlineKeyPoints(), 300);
+                        }
+                    }
+                });
+            }
+        });
+    });
+    
+    // Observe the main content area for changes
+    const mainContent = document.querySelector('main') || document.body;
+    conversationObserver.observe(mainContent, {
+        childList: true,
+        subtree: true
+    });
+    
+    console.log("EchoNav: ✅ Keypoints restoration observer initialized");
+    
+    // Set up periodic check as fallback (every 3 seconds)
+    let lastUrl = window.location.href;
+    setInterval(() => {
+        const currentUrl = window.location.href;
+        
+        // Check if URL changed (conversation switched)
+        if (currentUrl !== lastUrl) {
+            console.log("EchoNav: URL changed, restoring keypoints");
+            lastUrl = currentUrl;
+            setTimeout(() => restoreInlineKeyPoints(), 500);
+        } else {
+            // Even if URL didn't change, check for missing keypoints UI
+            const messagesWithData = document.querySelectorAll('[data-echonav-has-keypoints="true"]');
+            if (messagesWithData.length > 0) {
+                // Check if any are missing UI
+                let needsRestore = false;
+                messagesWithData.forEach(msg => {
+                    const nextElement = msg.nextElementSibling;
+                    if (!nextElement || !nextElement.classList.contains('echonav-inline-keypoints')) {
+                        needsRestore = true;
+                    }
+                });
+                
+                if (needsRestore) {
+                    console.log("EchoNav: Periodic check detected missing keypoints UI, restoring");
+                    restoreInlineKeyPoints();
+                }
+            }
+        }
+    }, 3000); // Check every 3 seconds
+    
+    console.log("EchoNav: ✅ Periodic restoration check initialized (every 3s)");
   }, 2000); // 2 second delay to avoid conflicts with page load
 

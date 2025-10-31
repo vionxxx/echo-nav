@@ -1,9 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
     const outlineDiv = document.getElementById('outline');
-    const outlineViewButton = document.getElementById('outline-view-button');
     const generateButton = document.getElementById('generate-button');
         const retryButton = document.getElementById('retry-button');
         const welcomeMessage = document.getElementById('welcome-message');
+        const newConversationMessage = document.getElementById('new-conversation-message');
         const errorMessage = document.getElementById('error-message');
         const errorText = errorMessage.querySelector('.error-text');
         const autoUpdateToggle = document.getElementById('auto-update-toggle');
@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const moreOptionsPopup = document.getElementById('more-options-popup');
     const regenerateOption = document.getElementById('regenerate-option');
     const shareOption = document.getElementById('share-option');
-    const readOption = document.getElementById('read-option');
+    const fullscreenOption = document.getElementById('fullscreen-option');
     const insightWelcome = document.getElementById('insight-welcome');
     const showKeypointsToggle = document.getElementById('show-keypoints-toggle');
     let fullTextToRead = '';
@@ -22,14 +22,20 @@ document.addEventListener('DOMContentLoaded', () => {
     let pollingInterval = null;
     let isOutlineViewMode = false;
     let isMoreOptionsOpen = false;
+    let newConversationPollingInterval = null;
+    let isNewConversation = false;
     
         // Load toggle states
         chrome.storage.local.get(['autoUpdateEnabled', 'showKeypointsEnabled'], (result) => {
             if (result.autoUpdateEnabled !== undefined) {
                 autoUpdateToggle.checked = result.autoUpdateEnabled;
             }
+            // Default to true if not set
             if (result.showKeypointsEnabled !== undefined) {
                 showKeypointsToggle.checked = result.showKeypointsEnabled;
+            } else {
+                showKeypointsToggle.checked = true;
+                chrome.storage.local.set({ showKeypointsEnabled: true });
             }
         });
 
@@ -41,10 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showKeypointsToggle.addEventListener('change', () => {
             const isEnabled = showKeypointsToggle.checked;
-            chrome.storage.local.set({ 
-                showKeypointsEnabled: isEnabled,
-                showKeypointsInFullscreen: isEnabled 
-            });
+            chrome.storage.local.set({ showKeypointsEnabled: isEnabled });
             console.log("EchoNav: Show keypoints toggle changed to:", isEnabled);
             
             // If fullscreen is active, refresh the outline view to apply changes
@@ -131,15 +134,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentTab = getCurrentActiveTab();
             
             if (currentTab === 'timeline') {
-                // Regenerate Flow outline
+                // Regenerate Timeline outline with fresh Case A/B classification
+                // This clears all DOM markers and cached data, then re-extracts and re-analyzes all conversation turns
                 chrome.runtime.sendMessage({ action: "regenerateOutline" }, (response) => {
                     if (response && response.success) {
-                        // Clear the timeline content and start generation
+                        // Clear the timeline content and start fresh generation
                         const outlineDiv = document.getElementById('outline');
-                        outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Regenerating outline...</p></div>';
+                        outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Regenerating outline with fresh analysis...</p></div>';
                         currentOutlineItems = [];
                         
-                        // Start generation
+                        // Start fresh generation (will re-do Case A/B classification for all turns)
                         generateOutline();
                     } else {
                         console.error("Failed to regenerate outline:", response.error);
@@ -165,7 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     if (!response || !response.success) {
                         console.error("EchoNav: Failed to start Insight regeneration");
-                        logicalContent.innerHTML = '<div id="insight-welcome" class="welcome-state"><div class="welcome-icon">🧠</div><h2>Generate Insight</h2><p>Create a hierarchical structure from your Flow timeline to better understand the conversation.</p><button id="generate-logical-button" class="primary-btn"><span class="btn-icon">🚀</span> Generate Insight</button></div>';
+                        logicalContent.innerHTML = '<div id="insight-welcome" class="welcome-state"><div class="welcome-icon">🧠</div><h2>Generate Insight</h2><p>Create a hierarchical structure from your Timeline to better understand the conversation.</p><button id="generate-logical-button" class="primary-btn"><span class="btn-icon">🚀</span> Generate Insight</button></div>';
                     }
                 });
             }
@@ -177,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentTab = getCurrentActiveTab();
             
             if (currentTab === 'timeline') {
-                // Share Flow outline
+                // Share Timeline outline
                 if (currentOutlineItems && currentOutlineItems.length > 0) {
                     const shareText = currentOutlineItems.map((item, index) => {
                         let result = `${index + 1}. ${item.title}`;
@@ -191,12 +195,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     }).join('\n\n');
                     
                     navigator.clipboard.writeText(shareText).then(() => {
-                        alert('Flow outline copied to clipboard!');
+                        alert('Timeline outline copied to clipboard!');
                     }).catch(() => {
                         alert('Failed to copy to clipboard. Please try again.');
                     });
                 } else {
-                    alert('No Flow outline to share. Please generate an outline first.');
+                    alert('No Timeline outline to share. Please generate an outline first.');
                 }
             } else if (currentTab === 'logical') {
                 // Share Insight hierarchy
@@ -221,18 +225,23 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
-        // Read option (moved from header)
-        readOption.addEventListener('click', () => {
+        // Fullscreen option (moved from header)
+        fullscreenOption.addEventListener('click', () => {
             closeMoreOptions();
-            const currentTab = getCurrentActiveTab();
-            
-            if (currentTab === 'timeline') {
-                // Read Flow outline
-                handleReadOutline();
-            } else if (currentTab === 'logical') {
-                // Read Insight hierarchy
-                handleReadInsightHierarchy();
+            if (currentOutlineItems.length === 0) {
+                alert('Please generate an outline first before entering fullscreen mode.');
+                return;
             }
+
+            // Send a message to the content script to toggle fullscreen
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, {
+                        action: 'enterFullscreenWithFloatingButton',
+                        outlineItems: currentOutlineItems
+                    });
+                }
+            });
         });
 
         // Generate Insight Hierarchy button
@@ -260,6 +269,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function showError(message) {
         welcomeMessage.style.display = 'none';
+        newConversationMessage.style.display = 'none';
+        newConversationMessage.classList.add('hidden');
         errorText.textContent = message;
         errorMessage.classList.remove('hidden');
         outlineDiv.innerHTML = '';
@@ -272,6 +283,9 @@ document.addEventListener('DOMContentLoaded', () => {
     generateButton.addEventListener('click', () => {
         hideError();
         welcomeMessage.style.display = 'none';
+        newConversationMessage.style.display = 'none';
+        newConversationMessage.classList.add('hidden');
+        stopNewConversationPolling(); // Stop polling when user manually generates
         outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
         generateOutline();
     });
@@ -297,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 outlineDiv.innerHTML = `<p>${request.message}</p>`;
             } else if (request.action === "streamingStarted") {
                 console.log("EchoNav: Streaming started, total turns:", request.totalTurns);
-                // Clear the outline and show two shimmer placeholders (consistent with addFlowItem)
+                // Clear the outline and show two shimmer placeholders (consistent with addTimelineItem)
                 outlineDiv.innerHTML = `
                     <div class="timeline-simple-placeholder">
                         <div class="timeline-shimmer"></div>
@@ -307,7 +321,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 currentOutlineItems = []; // Reset items array
-            } else if (request.action === "addFlowItem") {
+                
+                // Announce generation start
+                if (window.EchoNavAccessibility) {
+                    window.EchoNavAccessibility.announce(`Timeline for this conversation is now generating. Total ${request.totalTurns} conversation turns to process.`);
+                }
+            } else if (request.action === "addTimelineItem") {
                 console.log("EchoNav: Adding timeline item:", request.item.title);
                 // Add the item to our array
                 currentOutlineItems.push(request.item);
@@ -317,8 +336,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 outlineDiv.innerHTML = '';
                 outlineDiv.appendChild(timeline);
                 
-                // Refresh accessibility features for streaming updates
-                refreshAccessibilityFeatures();
+                // Don't initialize accessibility during streaming - wait for streamingCompleted
+                // This prevents multiple "Outline is ready" announcements
                 
                 // Add shimmer placeholders for remaining items
                 if (request.index + 1 < request.total) {
@@ -340,6 +359,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     progressElement.textContent = progressText;
                 }
                 
+                // Announce each turn as it's generated (concise announcement)
+                if (window.EchoNavAccessibility) {
+                    const turnNumber = request.index + 1;
+                    const title = request.item.title;
+                    // Only announce for first few items to avoid overwhelming
+                    if (turnNumber <= 3 || turnNumber === request.total) {
+                        window.EchoNavAccessibility.announce(`Turn ${turnNumber}: ${title}`);
+                    } else if (turnNumber % 5 === 0) {
+                        // Announce every 5th item for longer conversations
+                        window.EchoNavAccessibility.announce(`Progress: ${turnNumber} of ${request.total} turns processed`);
+                    }
+                }
+                
             } else if (request.action === "streamingCompleted") {
                 console.log("EchoNav: Streaming completed");
                 // Remove loading indicators and progress text
@@ -353,6 +385,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 // TTS is now available through more options menu
                 fullTextToRead = request.data.summary;
+                
+                // Announce completion with helpful instructions
+                if (window.EchoNavAccessibility) {
+                    const totalTurns = currentOutlineItems.length;
+                    const hasSubcontent = currentOutlineItems.some(item => 
+                        (item.structuredData && item.structuredData.outline && item.structuredData.outline.length > 0) ||
+                        (item.keyPoints && item.keyPoints.length > 0)
+                    );
+                    
+                    let completionMessage = `Timeline generation complete. ${totalTurns} conversation turn${totalTurns !== 1 ? 's' : ''} available.`;
+                    
+                    if (hasSubcontent) {
+                        completionMessage += ` Each turn may contain sections and details. Use arrow keys to navigate, Space to jump to content, VO+Space to expand or collapse. Press Command+Shift+T to jump to first turn.`;
+                    } else {
+                        completionMessage += ` Use arrow keys to navigate, Space to jump to content. Press Command+Shift+T to jump to first turn.`;
+                    }
+                    
+                    window.EchoNavAccessibility.announce(completionMessage);
+                }
+                
+                // NOW initialize accessibility features once streaming is complete
+                // This ensures "Outline is ready" is announced only once, AFTER keypoints are inserted and announced
+                // Pass skipAnnouncement=true because we already announced completion above
+                initializeAccessibilityFeatures(true);
+                
+                // Start polling for new messages
+                startPolling();
+                
+                // Update Insight View state
+                updateInsightWelcomeState();
                 
                 // Check for new messages after completion
             } else if (request.action === "logicalHierarchyUpdated") {
@@ -372,24 +434,152 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (request.action === "exitOutlineView") {
                 // Handle exit from outline view mode
                 isOutlineViewMode = false;
-                outlineViewButton.innerHTML = '<span class="icon">⛶</span><span class="text">Enter Fullscreen</span>';
-                outlineViewButton.classList.remove('active');
+                // Fullscreen button is now in more options menu, no need to update button state
+            } else if (request.action === "urlChanged") {
+                // Handle URL change from background.js
+                console.log("EchoNav: URL changed via runtime message:", request.url);
+                handleUrlChange(request.url);
             }
         });
 
+    // Smart URL change handler that decides behavior based on URL transition type
+    async function handleUrlChange(newUrl) {
+        const wasNewConversation = isNewConversation;
+        const isNowNew = newUrl.includes('chatgpt.com') && !newUrl.includes('/c/');
+        
+        console.log("EchoNav: Handling URL change - was new:", wasNewConversation, "is now new:", isNowNew);
+        
+        if (wasNewConversation && !isNowNew) {
+            // Scenario 1: From new conversation to conversation with ID
+            // User started chatting - don't generate yet, wait for AI to complete and keypoints to be inserted
+            console.log("EchoNav: User started conversation, waiting for AI to complete before generating outline");
+            stopNewConversationPolling();
+            isNewConversation = false;
+            newConversationMessage.style.display = 'none';
+            newConversationMessage.classList.add('hidden');
+            
+            // Try to load cached outline first
+            chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+                if (response && response.data && (response.data.summary || response.data.outline)) {
+                    console.log("EchoNav: Found cached outline for new conversation");
+                    const { summary, outline, items } = response.data;
+                    const outlineText = summary || outline;
+                    hideError();
+                    welcomeMessage.style.display = 'none';
+                    fullTextToRead = outlineText;
+                    currentOutlineItems = items || [];
+                    
+                    if (items && items.length > 0) {
+                        const ul = createClickableList(items);
+                        outlineDiv.innerHTML = '';
+                        outlineDiv.appendChild(ul);
+                        initializeAccessibilityFeatures();
+                        startPolling();
+                        updateInsightWelcomeState();
+                    }
+                } else {
+                    // No cache - this is a new conversation, check if AI has completed
+                    console.log("EchoNav: No cache for new conversation, checking if AI has completed");
+                    welcomeMessage.style.display = 'none';
+                    newConversationMessage.style.display = 'none';
+                    newConversationMessage.classList.add('hidden');
+                    outlineDiv.innerHTML = '';
+                    
+                    // Check immediately if AI response is complete
+                    chrome.runtime.sendMessage({ action: "checkNewMessages" }, (response) => {
+                        if (response && (response.hasNewMessages || response.completeTurns > 0)) {
+                            // AI has completed, generate outline now
+                            console.log("EchoNav: AI response detected as complete for new conversation, generating outline");
+                            outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
+                            setTimeout(() => {
+                                generateOutline();
+                            }, 500);
+                        } else if (response && response.pendingTurns > 0) {
+                            // AI still generating, wait and check again
+                            console.log("EchoNav: AI still generating, will check again");
+                            setTimeout(() => {
+                                chrome.runtime.sendMessage({ action: "checkNewMessages" }, (retryResponse) => {
+                                    if (retryResponse && (retryResponse.hasNewMessages || retryResponse.completeTurns > 0)) {
+                                        outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
+                                        setTimeout(() => {
+                                            generateOutline();
+                                        }, 500);
+                                    }
+                                });
+                            }, 2000);
+                        }
+                    });
+                }
+            });
+            
+        } else if (!wasNewConversation && isNowNew) {
+            // Scenario 2: From conversation with ID to new conversation
+            // User clicked "New Chat" - show waiting message
+            console.log("EchoNav: User started new conversation, showing waiting message");
+            resetSidepanel();
+            await updateWelcomeState(); // This will show new conversation message and start polling
+            
+        } else if (!wasNewConversation && !isNowNew) {
+            // Scenario 3: From one conversation with ID to another conversation with ID
+            // User switched conversations - try to load cache or show welcome message
+            console.log("EchoNav: User switched to different conversation, loading cache or showing welcome");
+            stopPolling();
+            stopNewConversationPolling();
+            hideError();
+            outlineDiv.innerHTML = '';
+            currentOutlineItems = [];
+            resetInsightViewForNewURL();
+            
+            // Try to load cached outline for this conversation
+            chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+                if (response && response.data && (response.data.summary || response.data.outline)) {
+                    console.log("EchoNav: Found cached outline for switched conversation");
+                    const { summary, outline, items } = response.data;
+                    const outlineText = summary || outline;
+                    welcomeMessage.style.display = 'none';
+                    fullTextToRead = outlineText;
+                    currentOutlineItems = items || [];
+                    
+                    if (items && items.length > 0) {
+                        const ul = createClickableList(items);
+                        outlineDiv.appendChild(ul);
+                        initializeAccessibilityFeatures();
+                        startPolling();
+                        updateInsightWelcomeState();
+                    }
+                } else {
+                    // No cache for this conversation - show welcome message (user must manually generate)
+                    console.log("EchoNav: No cache for switched conversation, showing welcome message");
+                    welcomeMessage.style.display = 'block';
+                    newConversationMessage.style.display = 'none';
+                    newConversationMessage.classList.add('hidden');
+                }
+            });
+            
+        } else {
+            // Scenario 4: New to new (shouldn't happen often, but handle gracefully)
+            console.log("EchoNav: Staying on new conversation page");
+            // Keep current state
+        }
+    }
+
     function resetSidepanel() {
         stopPolling(); // Stop polling when resetting
+        stopNewConversationPolling(); // Stop new conversation polling
         welcomeMessage.style.display = 'block';
+        newConversationMessage.style.display = 'none';
+        newConversationMessage.classList.add('hidden');
         hideError();
         outlineDiv.innerHTML = '';
         // TTS is now available through more options menu
         fullTextToRead = '';
         currentOutlineItems = [];
+        isNewConversation = false;
     }
 
     // Check for cached outline when sidepanel loads
-    function loadCachedOutline() {
-        chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+    async function loadCachedOutline() {
+        chrome.runtime.sendMessage({ action: "getCachedOutline" }, async (response) => {
             console.log("EchoNav: Cache response:", response);
             if (response && response.data && (response.data.summary || response.data.outline)) {
                 console.log("EchoNav: Found cached outline, loading it");
@@ -397,6 +587,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const outlineText = summary || outline;
                 hideError();
                 welcomeMessage.style.display = 'none';
+                newConversationMessage.style.display = 'none';
+                newConversationMessage.classList.add('hidden');
                 fullTextToRead = outlineText;
                 currentOutlineItems = items || [];
                 
@@ -411,7 +603,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Start periodic polling for new messages
                     startPolling();
                     
-                    // Update Insight View state when Flow data changes
+                    // Update Insight View state when Timeline data changes
                     updateInsightWelcomeState();
                 } else {
                     // Fallback: parse the outline text if items are not available
@@ -422,8 +614,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else {
                 console.log("EchoNav: No cached outline found");
-                // Show welcome message
-                welcomeMessage.style.display = 'block';
+                // Check if this is a new conversation (no ID yet)
+                await updateWelcomeState();
             }
         });
     }
@@ -477,17 +669,90 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Check if we're on a new conversation page (no conversation ID in URL)
+    async function checkIfNewConversation() {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab || !tab.url) return false;
+            
+            // Check if URL is chatgpt.com but doesn't have a conversation ID
+            const isNewConv = tab.url.includes('chatgpt.com') && !tab.url.includes('/c/');
+            console.log("EchoNav: Checking if new conversation:", isNewConv, "URL:", tab.url);
+            return isNewConv;
+        } catch (error) {
+            console.error("EchoNav: Error checking conversation state:", error);
+            return false;
+        }
+    }
+
+    // Poll for conversation to start (URL to include conversation ID)
+    function startNewConversationPolling() {
+        // Clear any existing interval
+        if (newConversationPollingInterval) {
+            clearInterval(newConversationPollingInterval);
+        }
+        
+        console.log("EchoNav: Starting new conversation polling");
+        newConversationPollingInterval = setInterval(async () => {
+            const stillNew = await checkIfNewConversation();
+            
+            if (!stillNew) {
+                // Conversation has started (URL now has ID)
+                // This will be handled by URL change detection and handleUrlChange function
+                console.log("EchoNav: Conversation detected via polling - URL change should handle this");
+                stopNewConversationPolling();
+            }
+        }, 2000); // Check every 2 seconds
+    }
+
+    // Stop polling for new conversation
+    function stopNewConversationPolling() {
+        if (newConversationPollingInterval) {
+            console.log("EchoNav: Stopping new conversation polling");
+            clearInterval(newConversationPollingInterval);
+            newConversationPollingInterval = null;
+        }
+    }
+
+    // Update welcome message based on conversation state
+    async function updateWelcomeState() {
+        const isNew = await checkIfNewConversation();
+        isNewConversation = isNew;
+        
+        if (isNew) {
+            // Show new conversation message
+            welcomeMessage.style.display = 'none';
+            newConversationMessage.style.display = 'block';
+            newConversationMessage.classList.remove('hidden');
+            
+            // Start polling for conversation to begin
+            startNewConversationPolling();
+        } else {
+            // Show normal welcome message
+            newConversationMessage.style.display = 'none';
+            newConversationMessage.classList.add('hidden');
+            welcomeMessage.style.display = 'block';
+            
+            // Stop new conversation polling if active
+            stopNewConversationPolling();
+        }
+    }
+
     // Stop polling when the document becomes hidden or is unloading
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) {
             stopPolling();
+            stopNewConversationPolling();
         } else if (currentOutlineItems.length > 0) {
             startPolling();
+        } else if (isNewConversation) {
+            startNewConversationPolling();
         }
     });
 
     window.addEventListener('beforeunload', () => {
         stopPolling();
+        stopNewConversationPolling();
     });
 
     // Update outline with new messages only
@@ -522,7 +787,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Restart polling for new messages
                 startPolling();
                 
-                // Update Insight View state when Flow data changes
+                // Update Insight View state when Timeline data changes
                 updateInsightWelcomeState();
             } else {
                 showError("Could not update outline.");
@@ -534,7 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCachedOutline();
 
     // Accessibility Integration Functions
-    function initializeAccessibilityFeatures() {
+    function initializeAccessibilityFeatures(skipAnnouncement = false) {
         console.log('EchoNav: Initializing accessibility features...');
         
         // Check if EchoNavAccessibility is available
@@ -545,7 +810,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const timelineContainer = outlineContainer ? outlineContainer.querySelector('.timeline-container') : null;
                 
                 if (timelineContainer) {
-                    window.EchoNavAccessibility.initializeTreeAccessibility(timelineContainer);
+                    window.EchoNavAccessibility.initializeTreeAccessibility(timelineContainer, skipAnnouncement);
                     console.log('EchoNav: Accessibility features initialized successfully');
                 } else {
                     console.warn('EchoNav: Timeline container not found for accessibility initialization');
@@ -626,7 +891,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 existingHierarchy.remove();
             }
             
-            // Reset to welcome state and update based on current Flow data
+            // Reset to welcome state and update based on current Timeline data
             if (insightWelcome) {
                 insightWelcome.style.display = 'block';
                 updateInsightWelcomeState();
@@ -659,7 +924,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        // Update welcome state based on Flow data availability
+        // Update welcome state based on Timeline data availability
         function updateInsightWelcomeState() {
             const hasTimelineData = currentOutlineItems.length > 0;
             const welcomeText = insightWelcome.querySelector('p');
@@ -667,16 +932,16 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!hasTimelineData) {
                 // Case (a): Can't generate yet
-                welcomeText.textContent = 'Generate a Flow timeline first, then create an Insight hierarchy to better understand the conversation.';
+                welcomeText.textContent = 'Generate a Timeline first, then create an Insight hierarchy to better understand the conversation.';
                 generateBtn.disabled = true;
                 generateBtn.style.opacity = '0.5';
-                console.log("EchoNav: Insight state (a) - No Flow data, can't generate");
+                console.log("EchoNav: Insight state (a) - No Timeline data, can't generate");
             } else {
                 // Case (b): Ready to generate
-                welcomeText.textContent = 'Create a hierarchical structure from your Flow timeline to better understand the conversation.';
+                welcomeText.textContent = 'Create a hierarchical structure from your Timeline to better understand the conversation.';
                 generateBtn.disabled = false;
                 generateBtn.style.opacity = '1';
-                console.log("EchoNav: Insight state (b) - Has Flow data, ready to generate");
+                console.log("EchoNav: Insight state (b) - Has Timeline data, ready to generate");
             }
         }
 
@@ -758,7 +1023,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const text = document.createElement('span');
                 text.className = 'logical-text';
-                text.textContent = row.topic;
+                // Clean text: remove emojis and standardize numbering
+                text.textContent = cleanTextForDisplay(row.topic);
                 item.appendChild(text);
 
                 // Add click handlers
@@ -773,15 +1039,42 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (row.traceability && row.traceability.length > 0) {
                         item.style.cursor = 'pointer';
                         item.addEventListener('click', () => {
-                            const best = findBestTraceabilityMatch({ traceability: row.traceability });
+                            const best = findBestTraceabilityMatch({ traceability: row.traceability, isMerged: row.isMerged });
                             if (best) {
+                                console.log(`EchoNav: Navigating to ${best.itemType} item:`, best.originalText);
+                                
                                 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                                    chrome.tabs.sendMessage(tabs[0].id, { 
-                                        action: 'scrollToSpecificContent', 
-                                        originalText: best.originalText,
-                                        matchedSentence: best.match?.sentence,
-                                        assistantUniqueId: best.assistantUniqueId
-                                    });
+                                    let navigationMessage;
+                                    
+                                    // Choose navigation method based on item type
+                                    if (best.itemType === 'heading' && best.headingId) {
+                                        // Use precise heading navigation
+                                        navigationMessage = {
+                                            action: 'scrollToHeading',
+                                            headingId: best.headingId,
+                                            headingText: best.originalText,
+                                            accessibilityMode: true // Enable focus for better UX
+                                        };
+                                    } else if (best.itemType === 'theme' && best.paragraphIds && best.paragraphIds.length > 0) {
+                                        // Navigate to first paragraph of theme
+                                        navigationMessage = {
+                                            action: 'scrollToParagraph',
+                                            paragraphId: best.paragraphIds[0],
+                                            paragraphText: best.originalText,
+                                            accessibilityMode: true
+                                        };
+                                    } else {
+                                        // Fallback to general content navigation
+                                        navigationMessage = {
+                                            action: 'scrollToSpecificContent',
+                                            originalText: best.originalText,
+                                            matchedSentence: best.match?.sentence,
+                                            assistantUniqueId: best.assistantUniqueId,
+                                            accessibilityMode: true
+                                        };
+                                    }
+                                    
+                                    chrome.tabs.sendMessage(tabs[0].id, navigationMessage);
                                 });
                             }
                         });
@@ -884,6 +1177,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Helper function to find the best traceability match for a node
+        // Updated to handle merged items and prioritize primary items
         function findBestTraceabilityMatch(node) {
             if (!node.traceability || node.traceability.length === 0) {
                 return null;
@@ -894,7 +1188,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 return node.traceability[0];
             }
             
-            // If there are multiple entries, prefer the one with a good match
+            // For merged items, prioritize the primary item
+            if (node.isMerged) {
+                const primaryTrace = node.traceability.find(trace => trace.isPrimary);
+                if (primaryTrace) {
+                    console.log(`EchoNav: Using primary trace for merged item "${node.topic}":`, primaryTrace.originalText);
+                    return primaryTrace;
+                }
+            }
+            
+            // Fallback: prefer the one with a good match score
             const bestMatch = node.traceability.find(trace => 
                 trace.match && trace.match.score > 0.5
             );
@@ -931,7 +1234,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Start periodic polling for new messages
             startPolling();
             
-            // Update Insight View state when Flow data changes
+            // Update Insight View state when Timeline data changes
             updateInsightWelcomeState();
           } else {
             showError("Could not find a conversation to summarize. Please make sure you're on a conversation page.");
@@ -940,23 +1243,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 1000); // 等待1秒确保content script已加载
     }
 
-    // Outline view mode toggle (renamed to "Enter Fullscreen")
-    outlineViewButton.addEventListener('click', () => {
-        if (currentOutlineItems.length === 0) {
-            alert('Please generate an outline first before entering fullscreen mode.');
-            return;
-        }
-
-        // Send a message to the content script to toggle fullscreen
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, {
-                    action: 'enterFullscreenWithFloatingButton',
-                    outlineItems: currentOutlineItems
-                });
-            }
-        });
-    });
 
     // Handle read outline functionality
     function handleReadOutline() {
@@ -975,16 +1261,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 onEvent: function(event) {
                     if (event.type === 'end' || event.type === 'interrupted') {
                         isSpeaking = false;
-                        updateReadOptionText();
                     }
                 }
             });
             isSpeaking = true;
-            updateReadOptionText();
         } else {
             chrome.tts.stop();
             isSpeaking = false;
-            updateReadOptionText();
         }
     }
 
@@ -1008,37 +1291,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     onEvent: function(event) {
                         if (event.type === 'end' || event.type === 'interrupted') {
                             isSpeaking = false;
-                            updateReadOptionText();
                         }
                     }
                 });
                 isSpeaking = true;
-                updateReadOptionText();
             } else {
                 alert('No insight hierarchy to read. Please generate insights first.');
             }
         } else {
             chrome.tts.stop();
             isSpeaking = false;
-            updateReadOptionText();
         }
     }
 
-    // Update read option text based on speaking state
-    function updateReadOptionText() {
-        if (readOption) {
-            const iconSpan = readOption.querySelector('.popup-icon');
-            const textSpan = readOption.querySelector('.popup-text');
-            
-            if (isSpeaking) {
-                iconSpan.textContent = '⏹️';
-                textSpan.textContent = 'Stop';
-            } else {
-                iconSpan.textContent = '🔊';
-                textSpan.textContent = 'Read';
-            }
-        }
-    }
 
     // Convert number to word (1-20)
     function numberToWord(num) {
@@ -1048,14 +1313,94 @@ document.addEventListener('DOMContentLoaded', () => {
         ];
         return words[num - 1] || num.toString();
     }
+    
+    // Function to focus on the latest timeline item (for post-keypoints navigation)
+    function focusLatestTimelineItem() {
+        console.log("EchoNav: Attempting to focus on latest timeline item");
+        
+        // First, ensure we're on the Timeline tab
+        const timelineTabButton = document.querySelector('.tab-btn[data-tab="timeline"]');
+        if (timelineTabButton && !timelineTabButton.classList.contains('active')) {
+            console.log("EchoNav: Switching to Timeline tab first");
+            timelineTabButton.click();
+            
+            // Wait for tab switch to complete
+            setTimeout(() => {
+                performLatestItemFocus();
+            }, 300);
+        } else {
+            // Already on Timeline tab
+            performLatestItemFocus();
+        }
+    }
+    
+    function performLatestItemFocus() {
+        // Find the last timeline item
+        const timelineContainer = document.querySelector('.timeline-container');
+        if (!timelineContainer) {
+            console.warn("EchoNav: Timeline container not found - outline may not be generated yet");
+            
+            // Announce to user
+            if (window.EchoNavAccessibility) {
+                window.EchoNavAccessibility.announce("Timeline not yet generated. Please generate the outline first.");
+            }
+            return;
+        }
+        
+        const timelineItems = timelineContainer.querySelectorAll('.timeline-item');
+        if (timelineItems.length === 0) {
+            console.warn("EchoNav: No timeline items found");
+            
+            if (window.EchoNavAccessibility) {
+                window.EchoNavAccessibility.announce("No conversation turns found in timeline.");
+            }
+            return;
+        }
+        
+        // Get the last item (most recent turn)
+        const latestItem = timelineItems[timelineItems.length - 1];
+        console.log("EchoNav: Found latest timeline item:", latestItem);
+        
+        // Expand the item if it has expandable content
+        const hasExpandable = latestItem.hasAttribute('aria-expanded');
+        if (hasExpandable) {
+            const isExpanded = latestItem.getAttribute('aria-expanded') === 'true';
+            if (!isExpanded) {
+                console.log("EchoNav: Expanding latest item to show its structure");
+                // Trigger expansion via accessibility manager
+                if (window.EchoNavAccessibility && window.EchoNavAccessibility.toggleTimelineExpansion) {
+                    window.EchoNavAccessibility.toggleTimelineExpansion(latestItem);
+                }
+            }
+        }
+        
+        // Use accessibility manager to focus on this item
+        if (window.EchoNavAccessibility && window.EchoNavAccessibility.setFocus) {
+            console.log("EchoNav: Using accessibility manager to focus latest item");
+            window.EchoNavAccessibility.setFocus(latestItem);
+            
+            // Announce to user
+            const itemTitle = latestItem.querySelector('.timeline-title')?.textContent || 'Latest turn';
+            window.EchoNavAccessibility.announce(`Focused on latest conversation turn: ${itemTitle}. Use arrow keys to navigate, Space to jump to content, VO+Space to expand/collapse.`);
+        } else {
+            // Fallback: direct focus
+            console.log("EchoNav: Accessibility manager not available, using direct focus");
+            latestItem.setAttribute('tabindex', '0');
+            latestItem.focus();
+            
+            // Scroll into view
+            latestItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
 
     window.addEventListener('message', (event) => {
         const request = event.data;
         if (request && request.action === 'urlChanged') {
             console.log("EchoNav (iframe): URL changed message received via postMessage", request.url);
-            resetSidepanel();
-            loadCachedOutline();
-            resetInsightViewForNewURL();
+            handleUrlChange(request.url);
+        } else if (request && request.action === 'focusLatestTimelineItem') {
+            console.log("EchoNav (iframe): Focus latest timeline item requested");
+            focusLatestTimelineItem();
         }
     });
   });
@@ -1126,7 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             contentStructure = 'legacy';
         }
 
-        // Flow dot with integrated arrow (if has expandable content) - purely visual, no click handler
+        // Timeline dot with integrated arrow (if has expandable content) - purely visual, no click handler
         const dot = document.createElement('div');
         dot.className = 'timeline-dot';
         dot.setAttribute('aria-hidden', 'true'); // Hide from accessibility tree
@@ -1164,25 +1509,32 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Group headings by level and create tree structure
                 const headingTree = buildHeadingTree(item.structuredData.outline);
                 
-                // Render all headings in a flat structure exactly like Insight view
-                // Filter out the heading that was used as turn title to avoid duplication
-                const turnTitleText = item.title.trim();
-                const filteredHeadings = item.structuredData.outline.filter(heading => {
-                    const headingText = heading.text.trim();
-                    return headingText !== turnTitleText;
-                });
+                // New logic: Show all headings with proper hierarchy
+                // Don't filter out single Level 1 headings - they provide important structure
+                const level1Headings = item.structuredData.outline.filter(h => h.level === 1);
                 
-                console.log(`EchoNav: Filtered ${item.structuredData.outline.length} headings to ${filteredHeadings.length} (removed turn title: "${turnTitleText}")`);
+                // Keep all headings to maintain proper hierarchy and indentation
+                const filteredHeadings = item.structuredData.outline;
+                
+                console.log(`EchoNav: Total headings: ${item.structuredData.outline.length}, Level 1 headings: ${level1Headings.length}`);
+                console.log(`EchoNav: Showing all headings to maintain hierarchy: ${filteredHeadings.length} headings`);
+                
+                // Determine the highest level (minimum level value) in all headings
+                const highestLevelInFiltered = filteredHeadings.length > 0 ? Math.min(...filteredHeadings.map(h => h.level)) : 1;
+                console.log(`EchoNav: Highest level in headings: ${highestLevelInFiltered}`);
                 
                 filteredHeadings.forEach((heading, headingIndex) => {
-                    // Add divider between major sections (level 1 headings)
-                    if (headingIndex > 0 && heading.level === 1) {
+                    // Add divider between major sections at the highest level shown
+                    if (headingIndex > 0 && heading.level === highestLevelInFiltered) {
                         const divider = document.createElement('div');
                         divider.className = 'timeline-hierarchy-divider';
                         hierarchyList.appendChild(divider);
                     }
                     
-                    const headingItem = createTimelineHierarchyItem(heading, headingIndex);
+                    // Calculate relative level: top-level items start at 0
+                    const relativeLevel = heading.level - highestLevelInFiltered;
+                    const isTopLevel = relativeLevel === 0;
+                    const headingItem = createTimelineHierarchyItem(heading, headingIndex, isTopLevel, relativeLevel);
                     hierarchyList.appendChild(headingItem);
                 });
                 
@@ -1194,6 +1546,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 hierarchyList.className = 'timeline-hierarchy';
 
                 item.structuredData.themes.forEach((theme, tIndex) => {
+                    // Add divider between themes (same as headings)
+                    if (tIndex > 0) {
+                        const divider = document.createElement('div');
+                        divider.className = 'timeline-hierarchy-divider';
+                        hierarchyList.appendChild(divider);
+                    }
+                    
                     const themeItem = createTimelineThemeItem(theme, tIndex);
                     hierarchyList.appendChild(themeItem);
                 });
@@ -1266,7 +1625,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 console.log(`EchoNav: Timeline item ${index + 1} clicked, toggling content`);
-                toggleFlowKeyPoints(timelineItem, null);
+                toggleTimelineKeyPoints(timelineItem, null);
             });
             
             // Also add click event to the dot specifically
@@ -1274,7 +1633,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 dot.addEventListener('click', (e) => {
                     e.stopPropagation();
                     console.log(`EchoNav: Timeline dot ${index + 1} clicked, toggling content`);
-                    toggleFlowKeyPoints(timelineItem, null);
+                    toggleTimelineKeyPoints(timelineItem, null);
                 });
             }
         }
@@ -1321,23 +1680,69 @@ document.addEventListener('DOMContentLoaded', () => {
     return tree;
   }
 
+  // Helper function to clean text: remove emojis and standardize numbering
+  function cleanTextForDisplay(text) {
+    if (!text) return '';
+    
+    // Step 1: Remove all emojis (comprehensive Unicode emoji ranges)
+    let cleaned = text.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]|[\u{1F900}-\u{1F9FF}]|[\u{1FA00}-\u{1FA6F}]|[\u{1FA70}-\u{1FAFF}]|[\u{2300}-\u{23FF}]|[\u{2B50}]|[\u{FE00}-\u{FE0F}]|[\u{200D}]/gu, '');
+    
+    // Step 2: Standardize numbering formats to "1. 2. 3." format
+    // Match patterns like: (1), (I), II., ②, 一、etc.
+    
+    // Pattern: (1) or （1） -> 1.
+    cleaned = cleaned.replace(/[（(]\s*(\d+)\s*[）)]/g, '$1.');
+    
+    // Pattern: Roman numerals (I, II, III, IV, etc.) at start -> convert to Arabic
+    const romanToArabic = { 'I': '1', 'II': '2', 'III': '3', 'IV': '4', 'V': '5', 
+                           'VI': '6', 'VII': '7', 'VIII': '8', 'IX': '9', 'X': '10' };
+    cleaned = cleaned.replace(/^([IVX]+)\.\s*/i, (match, roman) => {
+      const arabic = romanToArabic[roman.toUpperCase()];
+      return arabic ? arabic + '. ' : match;
+    });
+    
+    // Pattern: Circled numbers ① ② ③ -> 1. 2. 3.
+    cleaned = cleaned.replace(/[①②③④⑤⑥⑦⑧⑨⑩]/g, (match) => {
+      const circledNumbers = '①②③④⑤⑥⑦⑧⑨⑩';
+      const index = circledNumbers.indexOf(match);
+      return index >= 0 ? (index + 1) + '. ' : match;
+    });
+    
+    // Pattern: Chinese numbers 一、二、三、 -> 1. 2. 3.
+    const chineseToArabic = { '一': '1', '二': '2', '三': '3', '四': '4', '五': '5',
+                             '六': '6', '七': '7', '八': '8', '九': '9', '十': '10' };
+    cleaned = cleaned.replace(/^([一二三四五六七八九十])、/g, (match, chinese) => {
+      const arabic = chineseToArabic[chinese];
+      return arabic ? arabic + '. ' : match;
+    });
+    
+    // Step 3: Remove trailing colons and normalize multiple spaces
+    cleaned = cleaned.replace(/:\s*$/, ''); // Remove trailing colon (冒号)
+    cleaned = cleaned.replace(/\s+/g, ' ').trim();
+    
+    return cleaned;
+  }
+
   // Helper function to create hierarchy item (exactly matching Insight view)
-  function createTimelineHierarchyItem(heading, index) {
+  function createTimelineHierarchyItem(heading, index, isTopLevel = false, relativeLevel = 0) {
     const item = document.createElement('div');
-    // Map heading level to CSS level (h1=0, h2=1, h3=2, etc.)
-    const cssLevel = heading.level - 1;
+    
+    // Use relative level for CSS class (0 for top-level, 1 for first sub-level, etc.)
+    // This ensures proper indentation regardless of the actual heading level
+    const cssLevel = relativeLevel;
     item.className = `timeline-hierarchy-item level-${cssLevel}`;
     item.dataset.level = cssLevel;
     item.dataset.headingId = heading.uniqueId;
 
-    // Add dot or arrow based on level and whether it has children
+    // Symbol logic: Top-level items (first level under turn title) get NO dot
+    // Sub-level items get a bullet point (•)
     const symbol = document.createElement('span');
-    if (cssLevel === 0) {
-      // Level 0 (h1) - no symbol for main headings
+    if (isTopLevel) {
+      // Top-level heading under turn title - no symbol
       symbol.className = 'timeline-hierarchy-dot';
       symbol.textContent = '';
     } else {
-      // Level 1+ (h2, h3, etc.) - show bullet point
+      // Sub-level heading - show bullet point
       symbol.className = 'timeline-hierarchy-dot';
       symbol.textContent = '•';
     }
@@ -1345,8 +1750,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const text = document.createElement('span');
     text.className = 'timeline-hierarchy-text';
-    // Remove emojis and clean up text
-    const cleanText = heading.text.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+    // Clean text: remove emojis and standardize numbering
+    const cleanText = cleanTextForDisplay(heading.text);
     text.textContent = cleanText;
     item.appendChild(text);
 
@@ -1381,7 +1786,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const text = document.createElement('span');
     text.className = 'timeline-hierarchy-text';
-    text.textContent = theme.themeName || `Theme ${index + 1}`;
+    // Clean text: remove emojis and standardize numbering
+    text.textContent = cleanTextForDisplay(theme.themeName || `Theme ${index + 1}`);
     item.appendChild(text);
 
     // Click → scroll to first paragraph of this theme
@@ -1449,7 +1855,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function toggleFlowKeyPoints(timelineItem, keyPointsArray) {
+  function toggleTimelineKeyPoints(timelineItem, keyPointsArray) {
     // Support both legacy and new structured content
     const expandableContainer = timelineItem.querySelector('.timeline-expandable-content') || 
                                timelineItem.querySelector('.timeline-keypoints');

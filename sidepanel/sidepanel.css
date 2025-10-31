@@ -430,6 +430,28 @@ body {
     font-weight: 500;
 }
 
+.waiting-indicator {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+    margin-top: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: var(--surface-color);
+    border-radius: var(--radius-md);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
 /* Loading Spinner */
 .spinner {
     width: 32px;
@@ -451,7 +473,7 @@ body {
     padding: var(--space-lg);
 }
 
-/* Flow View Styles */
+/* Timeline View Styles */
 .timeline-container {
     position: relative;
 }
@@ -780,12 +802,7 @@ body {
     cursor: pointer;
 }
 
-.timeline-hierarchy-item.level-0:hover {
-    /* No hover effect for headings */
-    background-color: transparent;
-}
-
-.timeline-hierarchy-item:not(.level-0):hover {
+.timeline-hierarchy-item:hover {
     background-color: var(--bg-secondary);
 }
 
@@ -840,18 +857,22 @@ body {
     color: var(--primary-color);
 }
 
-/* All hierarchy items use the same font size - no special styling for level-0 */
+/* All hierarchy items use proper hierarchical indentation */
+
+.timeline-hierarchy-item.level-0 {
+    margin-left: 0 !important; /* Main headings (h2) - no extra indentation */
+}
 
 .timeline-hierarchy-item.level-1 {
-    margin-left: var(--space-sm);
+    margin-left: var(--space-lg) !important; /* Sub-headings (h3) - clear indentation */
 }
 
 .timeline-hierarchy-item.level-2 {
-    margin-left: calc(var(--space-sm) * 2);
+    margin-left: calc(var(--space-lg) + var(--space-md)) !important; /* Deeper nesting */
 }
 
 .timeline-hierarchy-item.level-3 {
-    margin-left: calc(var(--space-sm) * 3);
+    margin-left: calc(var(--space-lg) * 2 + var(--space-md)) !important; /* Deepest nesting */
 }
 
 .timeline-hierarchy-divider {

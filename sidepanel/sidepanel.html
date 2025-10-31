@@ -13,27 +13,33 @@
             <img src="../icons/icon48.png" alt="EchoNav Logo" class="logo" />
             <h1 id="app-title">EchoNav</h1>
         </div>
-        <div class="header-actions">
-            <button id="outline-view-button" class="action-btn" aria-label="Enter fullscreen mode to view outline overlay">
-                <span class="icon" aria-hidden="true">⛶</span>
-                <span class="text">Enter Fullscreen</span>
-            </button>
-        </div>
     </header>
 
     <!-- Main Content -->
     <main class="app-main" role="presentation">
         <!-- Content Areas -->
         <div class="content-container" role="presentation">
-            <!-- Flow Tab -->
+            <!-- Timeline Tab -->
             <section id="timeline-tab" class="tab-panel active" role="tabpanel" aria-labelledby="flow-tab-label">
+                <!-- Welcome message for new conversations (no turns yet) -->
+                <div id="new-conversation-message" class="welcome-state hidden">
+                    <div class="welcome-icon" aria-hidden="true">💬</div>
+                    <h2>Start Your Conversation</h2>
+                    <p>Begin chatting with ChatGPT. EchoNav will automatically generate a timeline once you start the conversation.</p>
+                    <div class="waiting-indicator" aria-live="polite" aria-atomic="true">
+                        <span aria-hidden="true">👀</span>
+                        <span>Waiting for conversation to begin...</span>
+                    </div>
+                </div>
+                
+                <!-- Welcome message for existing conversations -->
                 <div id="welcome-message" class="welcome-state">
                     <div class="welcome-icon" aria-hidden="true">✨</div>
                     <h2>Welcome to EchoNav</h2>
-                    <p>Generate a structured outline of your conversation to navigate and understand the discussion better.</p>
-                    <button id="generate-button" class="primary-btn">
+                    <p>Navigate your ChatGPT conversations easily. Generate a timeline to see all conversation turns structured and accessible.</p>
+                    <button id="generate-button" class="primary-btn" aria-label="Generate timeline button. Press to create a structured outline of this conversation">
                         <span class="btn-icon" aria-hidden="true">🚀</span>
-                        Generate Outline
+                        Generate Timeline
                     </button>
                 </div>
 
@@ -52,13 +58,6 @@
                 <div id="outline" class="outline-content" role="presentation"></div>
             </section>
             
-            <!-- ARIA Live Region for Screen Reader Announcements -->
-            <div id="aria-announcements" 
-                 role="status" 
-                 aria-live="polite" 
-                 aria-atomic="true"
-                 style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;">
-            </div>
 
             <!-- Insight Tab -->
             <section id="logical-tab" class="tab-panel" role="tabpanel" aria-labelledby="insight-tab-label">
@@ -66,7 +65,7 @@
                     <div id="insight-welcome" class="welcome-state">
                         <div class="welcome-icon" aria-hidden="true">🧠</div>
                         <h2>Generate Insight</h2>
-                        <p>Create a hierarchical structure from your Flow timeline to better understand the conversation.</p>
+                        <p>Create a hierarchical structure from your Timeline to better understand the conversation.</p>
                         <button id="generate-logical-button" class="primary-btn">
                             <span class="btn-icon" aria-hidden="true">🚀</span>
                             Generate Insight
@@ -89,8 +88,8 @@
                             </label>
                         </div>
                         <div class="setting-item">
-                            <span class="setting-label">Show keypoints in fullscreen</span>
-                            <span class="setting-description" id="keypoints-desc">Display keypoints when in fullscreen mode</span>
+                            <span class="setting-label">Show keypoints</span>
+                            <span class="setting-description" id="keypoints-desc">Display keypoints in conversation and fullscreen mode</span>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="show-keypoints-toggle" checked aria-describedby="keypoints-desc">
                                 <span class="switch-slider" aria-hidden="true"></span>
@@ -114,7 +113,7 @@
     <nav class="bottom-tab-nav" role="tablist" aria-label="Main navigation">
         <button class="tab-btn active" data-tab="timeline" role="tab" aria-selected="true" aria-controls="timeline-tab" id="flow-tab-label">
             <span class="tab-icon" aria-hidden="true">📋</span>
-            <span class="tab-label">Flow</span>
+            <span class="tab-label">Timeline</span>
         </button>
         <button class="tab-btn" data-tab="logical" role="tab" aria-selected="false" aria-controls="logical-tab" id="insight-tab-label">
             <span class="tab-icon" aria-hidden="true">🧠</span>
@@ -141,14 +140,20 @@
             <span class="popup-icon" aria-hidden="true">📤</span>
             <span class="popup-text">Share</span>
         </button>
-        <button id="read-option" class="popup-option" role="menuitem">
-            <span class="popup-icon" aria-hidden="true">🔊</span>
-            <span class="popup-text">Read</span>
+        <button id="fullscreen-option" class="popup-option" role="menuitem">
+            <span class="popup-icon" aria-hidden="true">⛶</span>
+            <span class="popup-text">Enter Fullscreen</span>
         </button>
     </div>
 
     <!-- ARIA live region for screen reader announcements -->
-    <div id="aria-announcements" aria-live="polite" aria-atomic="true" style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;"></div>
+    <div id="aria-announcements" 
+         role="status" 
+         aria-live="polite" 
+         aria-atomic="true" 
+         aria-label="EchoNav status announcements"
+         style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;">
+    </div>
 
     <script src="sidepanel.js"></script>
     <script src="accessibility.js"></script>

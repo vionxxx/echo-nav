@@ -29,7 +29,10 @@
     ],
     "web_accessible_resources": [
       {
-        "resources": ["sidepanel/sidepanel.html"],
+        "resources": [
+          "sidepanel/sidepanel.html",
+          "icons/icon128.png"
+        ],
         "matches": ["https://chatgpt.com/*", "https://grok.com/*"]
       }
     ],
