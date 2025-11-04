@@ -11,8 +11,7 @@
     },
     "permissions": ["storage", "tts", "activeTab", "scripting"],
     "host_permissions": [
-        "https://chatgpt.com/*",
-        "https://grok.com/*"
+        "https://chatgpt.com/*"
     ],
     "background": {
       "service_worker": "background.js"
@@ -20,8 +19,7 @@
     "content_scripts": [
       {
          "matches": [
-          "https://chatgpt.com/*",
-          "https://grok.com/*"
+          "https://chatgpt.com/*"
         ],
         "js": ["content.js"],
         "css": ["sidepanel/sidepanel.css"]
@@ -33,7 +31,7 @@
           "sidepanel/sidepanel.html",
           "icons/icon128.png"
         ],
-        "matches": ["https://chatgpt.com/*", "https://grok.com/*"]
+        "matches": ["https://chatgpt.com/*"]
       }
     ],
     "action": {
