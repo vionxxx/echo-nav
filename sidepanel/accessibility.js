@@ -12,6 +12,7 @@ class AccessibilityManager {
         this.treeContainer = null;
         this.ariaLiveRegion = null;
         this.isVoiceMode = false;
+        this.isManualClickInProgress = false; // Flag to track manual mouse clicks
         
         // Initialize when DOM is ready
         if (document.readyState === 'loading') {
@@ -38,10 +39,36 @@ class AccessibilityManager {
         // Add global keyboard shortcuts for quick navigation
         this.initializeGlobalShortcuts();
         
-        // Announce welcome message on plugin open
-        this.announceWelcome();
+        // Add global mouse event listeners to detect manual clicks
+        this.initializeMouseClickDetection();
+        
+        // Note: Removed automatic welcome announcement to avoid interfering with VoiceOver navigation
+        // this.announceWelcome();
         
         console.log('EchoNav Accessibility: Initialized successfully');
+    }
+
+    /**
+     * Initialize mouse click detection to prevent auto-expand/collapse interference
+     */
+    initializeMouseClickDetection() {
+        // Listen for mousedown on timeline dots and items to detect manual clicks
+        document.addEventListener('mousedown', (e) => {
+            // Check if clicking on a timeline dot or timeline item
+            const clickedDot = e.target.closest('.timeline-dot-expandable');
+            const clickedTimelineItem = e.target.closest('.timeline-item');
+            
+            if (clickedDot || clickedTimelineItem) {
+                console.log('EchoNav Accessibility: Mouse click detected on timeline element');
+                this.isManualClickInProgress = true;
+                
+                // Clear the flag after a short delay (enough for the click to complete)
+                setTimeout(() => {
+                    this.isManualClickInProgress = false;
+                    console.log('EchoNav Accessibility: Manual click flag cleared');
+                }, 300);
+            }
+        }, true); // Use capture phase to catch it early
     }
 
     /**
@@ -179,7 +206,7 @@ class AccessibilityManager {
         // Announce successful jump with instructions
         const titleElement = firstItem.querySelector('.timeline-title');
         const title = titleElement ? titleElement.textContent.trim() : 'First turn';
-        this.announce(`Jumped to first conversation turn: ${title}. Use arrow keys to navigate, Space to jump to content. Multiple expand/collapse keys available: Enter, 0-9, E/T/X, VO combinations.`);
+        this.announce(`Jumped to first conversation turn: ${title}. Use arrow keys to navigate, Space to jump. VO+Shift+Down to enter content.`);
     }
 
     /**
@@ -204,7 +231,7 @@ class AccessibilityManager {
         this.addInsightKeyboardNavigation(logicalList);
         
         // Announce that the insight tree is ready with clear instructions
-        this.announce('EchoNav insights ready! Use arrow keys to navigate, Space to jump, VO+Right to enter tree. Multiple expand/collapse keys available: Enter, 0-9, E/T/X, VO combinations.');
+        this.announce('EchoNav insights ready! Use arrow keys to navigate, Space to jump. VO+Shift+Down to expand and enter. Expand/collapse: Enter, 0-9, E/T/X, VO+Space.');
     }
 
     /**
@@ -238,7 +265,7 @@ class AccessibilityManager {
                     const title = textElement ? textElement.textContent.trim() : 'Untitled';
                     const subpointCount = this.countLogicalSubpoints(item, logicalItems);
                     
-                    const ariaLabel = `Category: ${title}. Has ${subpointCount} subpoint${subpointCount !== 1 ? 's' : ''}. Space: Jump. VO+Space: Expand/Collapse`;
+                    const ariaLabel = `Category: ${title}. Has ${subpointCount} subpoint${subpointCount !== 1 ? 's' : ''}. Space: Jump. VO+Shift+Down: Expand and enter. VO+Space: Expand/Collapse`;
                     item.setAttribute('aria-label', ariaLabel);
                 } else {
                     // No subpoints, just a simple item
@@ -400,6 +427,110 @@ class AccessibilityManager {
     }
 
     /**
+     * Check if VoiceOver is likely running (macOS)
+     */
+    isVoiceOverRunning() {
+        // Assume VoiceOver if on macOS (safe default for accessibility)
+        const isMacOS = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+        console.log('EchoNav Accessibility: Platform check - macOS:', isMacOS);
+        return isMacOS;
+    }
+
+    /**
+     * Auto-collapse a specific timeline item when focus leaves it
+     */
+    autoCollapseTimelineItemOnBlur(timelineItem) {
+        if (!timelineItem || !timelineItem.classList.contains('timeline-item')) {
+            return;
+        }
+
+        const hasExpandableContent = timelineItem.hasAttribute('aria-expanded');
+        
+        if (!hasExpandableContent) {
+            return;
+        }
+
+        const isExpanded = timelineItem.getAttribute('aria-expanded') === 'true';
+        
+        if (!isExpanded) {
+            console.log('EchoNav Accessibility: Item already collapsed');
+            return;
+        }
+
+        // Find expandable container and dot
+        const expandableContainer = timelineItem.querySelector('.timeline-expandable-content');
+        const dot = timelineItem.querySelector('.timeline-dot-expandable');
+        
+        if (expandableContainer && dot) {
+            console.log('EchoNav Accessibility: Auto-collapsing item on blur');
+            
+            // Collapse by adding hidden class
+            expandableContainer.classList.add('hidden');
+            dot.classList.remove('expanded');
+            timelineItem.setAttribute('aria-expanded', 'false');
+            
+            // Update ARIA label to reflect collapsed state
+            this.updateTimelineItemAriaLabel(timelineItem, false);
+            
+            console.log('EchoNav Accessibility: Item auto-collapsed successfully');
+        }
+    }
+
+    /**
+     * Auto-expand a specific timeline item when it receives focus
+     */
+    autoExpandTimelineItemOnFocus(timelineItem) {
+        if (!timelineItem || !timelineItem.classList.contains('timeline-item')) {
+            return;
+        }
+
+        const hasExpandableContent = timelineItem.hasAttribute('aria-expanded');
+        
+        if (!hasExpandableContent) {
+            console.log('EchoNav Accessibility: Item has no expandable content');
+            return;
+        }
+
+        const isExpanded = timelineItem.getAttribute('aria-expanded') === 'true';
+        
+        if (isExpanded) {
+            console.log('EchoNav Accessibility: Item already expanded');
+            return;
+        }
+
+        // Find expandable container and dot
+        const expandableContainer = timelineItem.querySelector('.timeline-expandable-content');
+        const dot = timelineItem.querySelector('.timeline-dot-expandable');
+        
+        if (expandableContainer && dot) {
+            console.log('EchoNav Accessibility: Auto-expanding item on focus');
+            
+            // Expand by removing hidden class
+            expandableContainer.classList.remove('hidden');
+            dot.classList.add('expanded');
+            timelineItem.setAttribute('aria-expanded', 'true');
+            
+            // Update ARIA label to reflect expanded state
+            this.updateTimelineItemAriaLabel(timelineItem, true);
+            
+            // Re-apply ARIA attributes to the newly visible content
+            const titleElement = timelineItem.querySelector('.timeline-title');
+            const title = titleElement ? titleElement.textContent.trim() : 'Untitled';
+            
+            const hierarchyContainer = timelineItem.querySelector('.timeline-hierarchy');
+            const keyPointsContainer = timelineItem.querySelector('.timeline-keypoints');
+            
+            if (hierarchyContainer) {
+                this.applyAriaAttributesToHierarchy(hierarchyContainer, title);
+            } else if (keyPointsContainer) {
+                this.applyAriaAttributesToKeyPoints(keyPointsContainer, title);
+            }
+            
+            console.log('EchoNav Accessibility: Item auto-expanded successfully');
+        }
+    }
+
+    /**
      * Initialize ARIA tree view for the generated outline
      */
     initializeTreeAccessibility(treeContainer, skipAnnouncement = false) {
@@ -423,9 +554,13 @@ class AccessibilityManager {
         // Add keyboard event listeners
         this.addKeyboardNavigation();
         
-        // Only announce if not skipping (e.g., if completion was already announced)
+        // Announce readiness
         if (!skipAnnouncement) {
-            this.announce('EchoNav outline ready! Use arrow keys to navigate, Space to jump to content. Multiple keys for expand/collapse: Enter, numbers 0-9, letters E/T/X. VO combinations also supported. Command+Shift+T to jump to first turn.');
+            if (this.isVoiceOverRunning()) {
+                this.announce('EchoNav outline ready! Content will auto-expand when you focus on each turn. Use arrow keys to navigate, Space to jump. VO+Shift+Down to enter content. Command+Shift+T to jump to first turn.');
+            } else {
+                this.announce('EchoNav outline ready! Use arrow keys to navigate, Space to jump to content. Command+Shift+T to jump to first turn.');
+            }
         }
     }
 
@@ -478,7 +613,7 @@ class AccessibilityManager {
                     contentType = 'details';
                 }
                 
-                const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType}. Space: Jump. Multiple keys for expand/collapse: Enter, 0-9, E/T/X, VO+Space/Enter/0-9/E/T/X`;
+                const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType}. Space: Jump to conversation. VO+Shift+Down: Enter content`;
                 item.setAttribute('aria-label', ariaLabel);
                 
                 // Apply ARIA attributes to expandable content
@@ -507,6 +642,7 @@ class AccessibilityManager {
 
     /**
      * Apply ARIA attributes to keypoint items (level 2 in hierarchy)
+     * FLATTENED: All items are aria-level 2 for easy VO+Right navigation
      */
     applyAriaAttributesToKeyPoints(keyPointsContainer, parentTitle) {
         if (!keyPointsContainer) return;
@@ -515,6 +651,7 @@ class AccessibilityManager {
         
         keyPoints.forEach((keyPoint, index) => {
             keyPoint.setAttribute('role', 'treeitem');
+            // FLATTENED: All items are level 2 for direct navigation with VO+Right
             keyPoint.setAttribute('aria-level', '2');
             keyPoint.setAttribute('tabindex', '-1');
             
@@ -526,6 +663,7 @@ class AccessibilityManager {
 
     /**
      * Apply ARIA attributes to hierarchy items (Case A headings and Case B1 themes)
+     * FLATTENED: All items are aria-level 2 for easy VO+Right navigation
      */
     applyAriaAttributesToHierarchy(hierarchyContainer, parentTitle) {
         if (!hierarchyContainer) return;
@@ -535,24 +673,27 @@ class AccessibilityManager {
         hierarchyItems.forEach((item, index) => {
             item.setAttribute('role', 'treeitem');
             
-            // Get level from CSS class or data attribute
-            const level = parseInt(item.dataset.level) || 0;
-            item.setAttribute('aria-level', (level + 2).toString()); // +2 because parent is level 1
+            // FLATTENED: All items are level 2 (direct children of timeline-item at level 1)
+            // This allows VO+Right to navigate through all items without needing VO+Shift+Down
+            item.setAttribute('aria-level', '2');
             item.setAttribute('tabindex', '-1');
             
-            // Generate descriptive aria-label based on content type
+            // Get original level from CSS class or data attribute for labeling
+            const originalLevel = parseInt(item.dataset.level) || 0;
+            
+            // Generate descriptive aria-label based on content hierarchy
             const textElement = item.querySelector('.timeline-hierarchy-text');
             const itemText = textElement ? textElement.textContent.trim() : 'Untitled';
             
-            // Determine if this is a heading (Case A) or theme (Case B1)
-            let itemType = 'section';
-            if (level === 0) {
-                itemType = 'main section';
+            // H2 (level 0): no prefix, just read the title
+            // H3+ (level 1+): add "Subsection:" prefix
+            let ariaLabel;
+            if (originalLevel === 0) {
+                ariaLabel = `${itemText}. Space: Jump to this part of conversation`;
             } else {
-                itemType = 'subsection';
+                ariaLabel = `Subsection: ${itemText}. Space: Jump to this part of conversation`;
             }
             
-            const ariaLabel = `${itemType}: ${itemText}. Space: Jump to this part of conversation`;
             item.setAttribute('aria-label', ariaLabel);
             
             // Add click handler for navigation
@@ -607,12 +748,52 @@ class AccessibilityManager {
             // Add new focus listener
             const focusHandler = (e) => {
                 console.log('EchoNav Accessibility: Focus event on item:', item);
+                
+                // Skip auto-expand/collapse if this focus was caused by a manual click
+                if (this.isManualClickInProgress) {
+                    console.log('EchoNav Accessibility: Manual click in progress, skipping auto-expand/collapse');
+                    // Update currentFocusedNode but don't auto-expand/collapse
+                    if (this.currentFocusedNode && this.currentFocusedNode !== item) {
+                        this.currentFocusedNode.setAttribute('tabindex', '-1');
+                    }
+                    this.currentFocusedNode = item;
+                    item.setAttribute('tabindex', '0');
+                    return;
+                }
+                
+                // Auto-collapse previous timeline item on macOS
+                if (this.isVoiceOverRunning() && this.currentFocusedNode && this.currentFocusedNode !== item) {
+                    // If leaving a timeline-item to go somewhere else, collapse it
+                    if (this.currentFocusedNode.classList.contains('timeline-item')) {
+                        // Check if new focus is NOT a child of the current timeline item
+                        const isMovingToChild = this.currentFocusedNode.contains(item);
+                        if (!isMovingToChild) {
+                            console.log('EchoNav Accessibility: Leaving timeline item, auto-collapsing');
+                            this.autoCollapseTimelineItemOnBlur(this.currentFocusedNode);
+                        }
+                    }
+                    // If leaving a child item to go to a different timeline item, collapse the parent
+                    else if (item.classList.contains('timeline-item')) {
+                        const oldParentTimelineItem = this.currentFocusedNode.closest('.timeline-item');
+                        if (oldParentTimelineItem && oldParentTimelineItem !== item) {
+                            console.log('EchoNav Accessibility: Leaving child to different timeline item, collapsing old parent');
+                            this.autoCollapseTimelineItemOnBlur(oldParentTimelineItem);
+                        }
+                    }
+                }
+                
                 // Update currentFocusedNode without calling setFocus to avoid infinite loop
                 if (this.currentFocusedNode && this.currentFocusedNode !== item) {
                     this.currentFocusedNode.setAttribute('tabindex', '-1');
                 }
                 this.currentFocusedNode = item;
                 item.setAttribute('tabindex', '0');
+                
+                // Auto-expand timeline items on focus (for VoiceOver on macOS)
+                if (this.isVoiceOverRunning() && item.classList.contains('timeline-item')) {
+                    console.log('EchoNav Accessibility: Timeline item focused on macOS, auto-expanding');
+                    this.autoExpandTimelineItemOnFocus(item);
+                }
             };
             
             item._accessibilityFocusHandler = focusHandler;
@@ -671,7 +852,14 @@ class AccessibilityManager {
             e.preventDefault();
             e.stopPropagation();
             console.log('EchoNav Accessibility: Space key - jumping to content');
-            this.jumpToContent(this.currentFocusedNode);
+            // Use the actual focused element (document.activeElement) to ensure we jump to the correct item
+            // This is more reliable than this.currentFocusedNode, especially with VoiceOver
+            const focusedNode = document.activeElement && document.activeElement.hasAttribute('role') && 
+                              document.activeElement.getAttribute('role') === 'treeitem' 
+                              ? document.activeElement 
+                              : this.currentFocusedNode;
+            console.log('EchoNav Accessibility: Using focused node:', focusedNode, 'classes:', focusedNode?.className);
+            this.jumpToContent(focusedNode);
             return;
         }
 
@@ -693,137 +881,14 @@ class AccessibilityManager {
             currentNodeExpanded: this.currentFocusedNode?.getAttribute('aria-expanded')
         });
         
-        // VoiceOver tree navigation - VO+Right/Left for hierarchical movement
-        if (isVoiceOver) {
-            if (e.key === 'ArrowRight') {
+        // VoiceOver tree navigation - SIMPLIFIED to only VO+Shift+Down (content auto-expands on macOS)
+        if (isVoiceOver && e.key === 'ArrowDown' && e.shiftKey) {
+            // VO+Shift+Down: Enter child level (content is already expanded)
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+Right detected on:', this.currentFocusedNode);
-                
-                // Make sure we're on a timeline item that can be expanded
-                if (this.currentFocusedNode && this.currentFocusedNode.classList.contains('timeline-item')) {
-                    console.log('EchoNav Accessibility: VO+Right - expanding timeline item');
-                    this.expandOrMoveToChild();
-                } else if (this.currentFocusedNode === this.treeContainer) {
-                    // If somehow still on container, focus first item
-                    const allNodes = this.getAllVisibleTreeItems();
-                    if (allNodes.length > 0) {
-                        this.setFocus(allNodes[0]);
-                        this.announce('Entered tree, first item');
-                    }
-                } else {
-                    console.log('EchoNav Accessibility: VO+Right - current node is not a timeline item:', this.currentFocusedNode?.className);
-                    this.announce('Use VO+Right on timeline items to expand content');
-                }
+            console.log('EchoNav Accessibility: VO+Shift+Down - enter child level');
+            this.expandAndEnterChildLevel();
                 return;
-            } else if (e.key === 'ArrowLeft') {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+Left - previous item or collapse');
-                // If we're on an item, try to collapse it or move to parent
-                if (this.currentFocusedNode !== this.treeContainer) {
-                    this.collapseOrMoveToParent();
-                } else {
-                    // If we're on the tree container, announce we're at the top level
-                    this.announce('At top level');
-                }
-                return;
-            } else if (e.key === 'ArrowDown') {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+Down - expand and enter or move down');
-                
-                // If on a timeline item, expand it and move to first child
-                if (this.currentFocusedNode && this.currentFocusedNode.classList.contains('timeline-item')) {
-                    const isExpanded = this.currentFocusedNode.getAttribute('aria-expanded') === 'true';
-                    
-                    if (!isExpanded) {
-                        // Expand the item first
-                        console.log('EchoNav Accessibility: VO+Down - expanding collapsed item');
-                        this.toggleExpansion(this.currentFocusedNode);
-                        
-                        // Then move to first child after a brief delay to ensure expansion completes
-                        setTimeout(() => {
-                            const firstChild = this.getFirstChildOfExpandedItem(this.currentFocusedNode);
-                            if (firstChild) {
-                                console.log('EchoNav Accessibility: VO+Down - moving to first child after expansion');
-                                this.setFocus(firstChild);
-                                this.announce('Expanded and entered child level');
-                            } else {
-                                this.announce('Expanded, but no child content found');
-                            }
-                        }, 50);
-                    } else {
-                        // Already expanded, just move to first child
-                        const firstChild = this.getFirstChildOfExpandedItem(this.currentFocusedNode);
-                        if (firstChild) {
-                            console.log('EchoNav Accessibility: VO+Down - moving to first child of expanded item');
-                            this.setFocus(firstChild);
-                            this.announce('Entered child level');
-                        } else {
-                            // No children, fall back to regular down navigation
-                            this.moveToNext();
-                        }
-                    }
-                } else {
-                    // Not on a timeline item, use regular navigation
-                    this.moveToNext();
-                }
-                return;
-            } else if (e.key === ' ') {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+Space - activate item');
-                // VO+Space should activate the current item (expand/collapse or jump)
-                this.activateNode();
-                return;
-            } else if (e.key === 'Enter') {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+Enter - expand/collapse shortcut');
-                this.forceToggleExpansion('VO+Enter');
-                return;
-            } else if (/^[0-9]$/.test(e.key)) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+' + e.key + ' - expand/collapse shortcut');
-                this.forceToggleExpansion('VO+' + e.key);
-                return;
-            } else if (['e', 'E', 't', 'T', 'x', 'X'].includes(e.key)) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('EchoNav Accessibility: VO+' + e.key + ' - expand/collapse shortcut');
-                this.forceToggleExpansion('VO+' + e.key.toLowerCase());
-                return;
-            }
-        }
-
-        // Standard keyboard shortcuts (without VO modifier)
-        // Handle Enter key as universal expand/collapse
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('EchoNav Accessibility: Enter key - expand/collapse shortcut');
-            this.forceToggleExpansion('Enter');
-            return;
-        }
-
-        // Handle number keys as expand/collapse shortcuts
-        if (/^[0-9]$/.test(e.key)) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('EchoNav Accessibility: Number key ' + e.key + ' - expand/collapse shortcut');
-            this.forceToggleExpansion(e.key);
-            return;
-        }
-
-        // Handle letter keys as expand/collapse shortcuts
-        if (['e', 'E', 't', 'T', 'x', 'X'].includes(e.key)) {
-            e.preventDefault();
-            e.stopPropagation();
-            console.log('EchoNav Accessibility: Letter key ' + e.key + ' - expand/collapse shortcut');
-            this.forceToggleExpansion(e.key.toLowerCase());
-            return;
         }
 
         // Handle all arrow keys as sibling navigation (simple and universal)
@@ -1065,7 +1130,281 @@ class AccessibilityManager {
     }
 
     /**
-     * Expand an item (VO+Shift+Down)
+     * Click the dot button directly to trigger expansion (NEW METHOD)
+     * This simulates a real user click on the circular button
+     */
+    clickDotButton(shortcutName) {
+        if (!this.currentFocusedNode) {
+            console.log('EchoNav Accessibility: No focused node');
+            this.announce('No item selected');
+            return;
+        }
+
+        console.log('EchoNav Accessibility: clickDotButton called with', shortcutName, 'on:', this.currentFocusedNode.className);
+
+        // Only works on timeline items
+        if (!this.currentFocusedNode.classList.contains('timeline-item')) {
+            console.log('EchoNav Accessibility: Not a timeline item');
+            this.announce('This shortcut only works on conversation turns');
+            return;
+        }
+
+        // Find the dot button inside this timeline item
+        const dot = this.currentFocusedNode.querySelector('.timeline-dot-expandable');
+        
+        if (!dot) {
+            console.log('EchoNav Accessibility: No expandable dot button found');
+            this.announce('This conversation turn has no expandable content');
+            return;
+        }
+
+        console.log('EchoNav Accessibility: Found dot button, triggering click event');
+        
+        // Method 1: Trigger a real click event on the dot
+        try {
+            // Create and dispatch a click event
+            const clickEvent = new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+            });
+            dot.dispatchEvent(clickEvent);
+            
+            console.log('EchoNav Accessibility: Click event dispatched successfully');
+            
+            // Check if it expanded or collapsed
+            const isNowExpanded = this.currentFocusedNode.getAttribute('aria-expanded') === 'true';
+            this.announce(isNowExpanded ? 'Content expanded' : 'Content collapsed');
+            
+            // Update ARIA state after a brief delay
+            setTimeout(() => {
+                this.updateAriaExpandedState(this.currentFocusedNode);
+            }, 100);
+            
+        } catch (error) {
+            console.error('EchoNav Accessibility: Error clicking dot button:', error);
+            this.announce('Failed to toggle content');
+        }
+    }
+
+    /**
+     * Update aria-expanded state based on actual DOM state
+     */
+    updateAriaExpandedState(timelineItem) {
+        const expandableContainer = timelineItem.querySelector('.timeline-expandable-content');
+        const dot = timelineItem.querySelector('.timeline-dot-expandable');
+        
+        if (expandableContainer && dot) {
+            const isExpanded = !expandableContainer.classList.contains('hidden');
+            timelineItem.setAttribute('aria-expanded', isExpanded.toString());
+            console.log('EchoNav Accessibility: Updated aria-expanded to', isExpanded);
+        }
+    }
+
+    /**
+     * Expand and enter child level (VO+Shift+Down)
+     * This is the VoiceOver standard shortcut for entering groups
+     * SIMPLIFIED: Since all content is auto-expanded on macOS, just enter first child
+     */
+    expandAndEnterChildLevel() {
+        if (!this.currentFocusedNode) {
+            console.log('EchoNav Accessibility: No focused node');
+            this.announce('No item selected');
+            return;
+        }
+
+        console.log('EchoNav Accessibility: expandAndEnterChildLevel on:', this.currentFocusedNode.className);
+
+        // Check if this is a timeline item or logical item
+        if (this.currentFocusedNode.classList.contains('timeline-item')) {
+            // Timeline item handling - content should already be expanded on macOS
+            const hasExpandableContent = this.currentFocusedNode.hasAttribute('aria-expanded');
+            
+            if (!hasExpandableContent) {
+                console.log('EchoNav Accessibility: Timeline item has no expandable content');
+                this.announce('This conversation turn has no expandable content');
+                return;
+            }
+
+            // Try to move to first child (should be available if auto-expanded)
+            const firstChild = this.getFirstChildOfExpandedItem(this.currentFocusedNode);
+            if (firstChild) {
+                console.log('EchoNav Accessibility: Moving to first child');
+                this.setFocus(firstChild);
+                this.announce('Entered content');
+            } else {
+                console.log('EchoNav Accessibility: No child content found');
+                this.announce('No content available to enter');
+            }
+        } else if (this.currentFocusedNode.classList.contains('logical-item')) {
+            // Insight logical item handling
+            const level = parseInt(this.currentFocusedNode.dataset.level) || 0;
+            
+            if (level !== 0) {
+                console.log('EchoNav Accessibility: Only level-0 logical items can be expanded');
+                this.announce('This subpoint cannot be expanded');
+                return;
+            }
+
+            const hasExpandableContent = this.currentFocusedNode.hasAttribute('aria-expanded');
+            
+            if (!hasExpandableContent) {
+                console.log('EchoNav Accessibility: Logical item has no expandable content');
+                this.announce('This category has no subpoints');
+                return;
+            }
+
+            const isExpanded = this.currentFocusedNode.getAttribute('aria-expanded') === 'true';
+            
+            if (!isExpanded) {
+                // Need to expand first
+                console.log('EchoNav Accessibility: Expanding logical item before entering');
+                this.toggleInsightExpansion(this.currentFocusedNode);
+                
+                // Wait for expansion, then move to first subpoint
+                setTimeout(() => {
+                    const allLogicalItems = Array.from(this.treeContainer.querySelectorAll('.logical-item'));
+                    const currentIndex = allLogicalItems.indexOf(this.currentFocusedNode);
+                    
+                    // Find first visible subpoint
+                    for (let i = currentIndex + 1; i < allLogicalItems.length; i++) {
+                        const nextItem = allLogicalItems[i];
+                        const nextLevel = parseInt(nextItem.dataset.level) || 0;
+                        
+                        if (nextLevel === 0) break; // Reached next category
+                        
+                        if (nextLevel > 0 && nextItem.style.display !== 'none') {
+                            console.log('EchoNav Accessibility: Moving to first subpoint after expansion');
+                            this.setFocus(nextItem);
+                            this.announce('Expanded and entered subpoints');
+                            return;
+                        }
+                    }
+                    
+                    this.announce('Expanded, but no subpoints available');
+                }, 100);
+            } else {
+                // Already expanded, move to first subpoint
+                const allLogicalItems = Array.from(this.treeContainer.querySelectorAll('.logical-item'));
+                const currentIndex = allLogicalItems.indexOf(this.currentFocusedNode);
+                
+                for (let i = currentIndex + 1; i < allLogicalItems.length; i++) {
+                    const nextItem = allLogicalItems[i];
+                    const nextLevel = parseInt(nextItem.dataset.level) || 0;
+                    
+                    if (nextLevel === 0) break;
+                    
+                    if (nextLevel > 0 && nextItem.style.display !== 'none') {
+                        console.log('EchoNav Accessibility: Moving to first subpoint of already expanded item');
+                        this.setFocus(nextItem);
+                        this.announce('Entered subpoints');
+                        return;
+                    }
+                }
+                
+                this.announce('No subpoints available');
+            }
+        } else {
+            // Not a timeline or logical item
+            console.log('EchoNav Accessibility: VO+Shift+Down only works on timeline turns or categories');
+            this.announce('VO+Shift+Down only works on conversation turns or categories');
+        }
+    }
+
+    /**
+     * Exit child level and collapse (VO+Shift+Up)
+     * This is the VoiceOver standard shortcut for exiting groups
+     */
+    exitAndCollapseChildLevel() {
+        if (!this.currentFocusedNode) {
+            console.log('EchoNav Accessibility: No focused node');
+            this.announce('No item selected');
+            return;
+        }
+
+        console.log('EchoNav Accessibility: exitAndCollapseChildLevel on:', this.currentFocusedNode.className);
+
+        const level = parseInt(this.currentFocusedNode.getAttribute('aria-level'));
+        
+        if (level === 2 || level > 2) {
+            // We're on a child item (level 2 or deeper) - move to parent and collapse it
+            let parentItem = null;
+            
+            if (this.currentFocusedNode.classList.contains('timeline-keypoint') || 
+                this.currentFocusedNode.classList.contains('timeline-hierarchy-item')) {
+                // Timeline child item - find parent timeline-item
+                parentItem = this.currentFocusedNode.closest('.timeline-item');
+            } else if (this.currentFocusedNode.classList.contains('logical-item')) {
+                // Logical subpoint - find parent level-0 logical-item
+                const allLogicalItems = Array.from(this.treeContainer.querySelectorAll('.logical-item'));
+                const currentIndex = allLogicalItems.indexOf(this.currentFocusedNode);
+                
+                // Search backwards for the parent (level 0 item)
+                for (let i = currentIndex - 1; i >= 0; i--) {
+                    const prevItem = allLogicalItems[i];
+                    const prevLevel = parseInt(prevItem.dataset.level) || 0;
+                    
+                    if (prevLevel === 0) {
+                        parentItem = prevItem;
+                        break;
+                    }
+                }
+            }
+            
+            if (parentItem) {
+                console.log('EchoNav Accessibility: Found parent item, moving focus and collapsing');
+                this.setFocus(parentItem);
+                
+                // Collapse the parent
+                const isExpanded = parentItem.getAttribute('aria-expanded') === 'true';
+                if (isExpanded) {
+                    setTimeout(() => {
+                        if (parentItem.classList.contains('timeline-item')) {
+                            this.toggleTimelineExpansion(parentItem);
+                        } else if (parentItem.classList.contains('logical-item')) {
+                            this.toggleInsightExpansion(parentItem);
+                        }
+                        this.announce('Exited and collapsed content');
+                    }, 50);
+                } else {
+                    this.announce('Exited to parent level');
+                }
+            } else {
+                console.log('EchoNav Accessibility: No parent item found');
+                this.announce('Already at top level');
+            }
+        } else if (level === 1) {
+            // We're on a top-level item (timeline-item or level-0 logical-item)
+            // Just collapse it if it's expanded
+            const hasExpandableContent = this.currentFocusedNode.hasAttribute('aria-expanded');
+            
+            if (hasExpandableContent) {
+                const isExpanded = this.currentFocusedNode.getAttribute('aria-expanded') === 'true';
+                
+                if (isExpanded) {
+                    console.log('EchoNav Accessibility: Collapsing top-level item');
+                    if (this.currentFocusedNode.classList.contains('timeline-item')) {
+                        this.toggleTimelineExpansion(this.currentFocusedNode);
+                    } else if (this.currentFocusedNode.classList.contains('logical-item')) {
+                        this.toggleInsightExpansion(this.currentFocusedNode);
+                    }
+                    this.announce('Collapsed');
+                } else {
+                    console.log('EchoNav Accessibility: Already collapsed');
+                    this.announce('Already collapsed');
+                }
+            } else {
+                console.log('EchoNav Accessibility: No expandable content to collapse');
+                this.announce('This item has no expandable content');
+            }
+        } else {
+            console.log('EchoNav Accessibility: Unknown level for exit/collapse');
+            this.announce('Cannot exit from this level');
+        }
+    }
+
+    /**
+     * Expand an item (legacy method for compatibility)
      */
     expandItem(node) {
         if (node.classList.contains('timeline-item')) {
@@ -1093,7 +1432,7 @@ class AccessibilityManager {
     }
 
     /**
-     * Collapse an item (VO+Shift+Up)
+     * Collapse an item (legacy method for compatibility)
      */
     collapseItem(node) {
         if (node.classList.contains('timeline-item')) {
@@ -1277,7 +1616,7 @@ class AccessibilityManager {
         }
 
         const expandedState = isExpanded ? 'expanded' : 'collapsed';
-        const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType} (${expandedState}). Space: Jump. Multiple keys available for expand/collapse: Enter, 0-9, E/T/X, VO combinations`;
+        const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType} (${expandedState}). Space: Jump to conversation. VO+Shift+Down: Enter content`;
         item.setAttribute('aria-label', ariaLabel);
         
         console.log('EchoNav Accessibility: Updated aria-label:', ariaLabel);
@@ -1349,7 +1688,7 @@ class AccessibilityManager {
                 contentType = 'details';
             }
             
-            const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType}. Space: Jump. Multiple keys for expand/collapse: Enter, 0-9, E/T/X, VO combinations`;
+                const ariaLabel = `Conversation round ${roundNumber}: ${title}. Has ${contentCount} ${contentType}. Space: Jump to conversation. VO+Shift+Down: Enter content`;
             node.setAttribute('aria-label', ariaLabel);
             
             // Re-apply ARIA attributes to content when expanded
@@ -1421,7 +1760,7 @@ class AccessibilityManager {
         const textElement = node.querySelector('.logical-text');
         const title = textElement ? textElement.textContent.trim() : 'Untitled';
         const subpointCount = this.countLogicalSubpoints(node, allLogicalItems);
-        const ariaLabel = `Category: ${title}. Has ${subpointCount} subpoint${subpointCount !== 1 ? 's' : ''}. Space: Jump. VO+Space: Expand/Collapse`;
+        const ariaLabel = `Category: ${title}. Has ${subpointCount} subpoint${subpointCount !== 1 ? 's' : ''}. Space: Jump. VO+Shift+Down: Expand and enter. VO+Space: Expand/Collapse`;
         node.setAttribute('aria-label', ariaLabel);
         
         // Announce the change
@@ -1652,6 +1991,15 @@ class AccessibilityManager {
         this.currentFocusedNode = node;
         node.setAttribute('tabindex', '0');
         node.focus();
+        
+        // Auto-expand timeline items on focus (for VoiceOver on macOS)
+        if (this.isVoiceOverRunning() && node.classList.contains('timeline-item')) {
+            console.log('EchoNav Accessibility: Timeline item focused via setFocus on macOS, auto-expanding');
+            // Use setTimeout to ensure focus event completes first
+            setTimeout(() => {
+                this.autoExpandTimelineItemOnFocus(node);
+            }, 50);
+        }
     }
 
     /**

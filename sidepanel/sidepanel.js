@@ -24,6 +24,22 @@ document.addEventListener('DOMContentLoaded', () => {
     let isMoreOptionsOpen = false;
     let newConversationPollingInterval = null;
     let isNewConversation = false;
+    let updateOutlineRetryCount = 0;
+    const MAX_UPDATE_RETRY = 5;
+    let isUpdatingOutline = false; // Flag to prevent concurrent updateOutline calls
+    
+    // Helper function to manage outline landmark visibility
+    function updateOutlineLandmark(hasContent) {
+        if (hasContent) {
+            // Outline has content - make it a landmark
+            outlineDiv.setAttribute('role', 'main');
+            outlineDiv.setAttribute('aria-label', 'EchoNav, conversation outline');
+        } else {
+            // Outline is empty - hide from landmarks
+            outlineDiv.setAttribute('role', 'presentation');
+            outlineDiv.removeAttribute('aria-label');
+        }
+    }
     
         // Load toggle states
         chrome.storage.local.get(['autoUpdateEnabled', 'showKeypointsEnabled'], (result) => {
@@ -125,6 +141,43 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('click', (e) => {
             if (isMoreOptionsOpen && !moreOptionsPopup.contains(e.target) && e.target !== moreOptionsBtn) {
                 closeMoreOptions();
+            }
+        });
+
+        // Keyboard navigation for more options menu
+        const menuItems = [regenerateOption, shareOption, fullscreenOption];
+        
+        moreOptionsPopup.addEventListener('keydown', (e) => {
+            if (!isMoreOptionsOpen) return;
+
+            const currentIndex = menuItems.indexOf(document.activeElement);
+            
+            // ESC key - close menu and return focus to button
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeMoreOptions();
+                return;
+            }
+            
+            // Arrow keys navigation
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                const nextIndex = (currentIndex + 1) % menuItems.length;
+                menuItems[nextIndex].focus();
+            } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                const prevIndex = (currentIndex - 1 + menuItems.length) % menuItems.length;
+                menuItems[prevIndex].focus();
+            }
+            // Home key - go to first item
+            else if (e.key === 'Home') {
+                e.preventDefault();
+                menuItems[0].focus();
+            }
+            // End key - go to last item
+            else if (e.key === 'End') {
+                e.preventDefault();
+                menuItems[menuItems.length - 1].focus();
             }
         });
 
@@ -274,6 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
         errorText.textContent = message;
         errorMessage.classList.remove('hidden');
         outlineDiv.innerHTML = '';
+        updateOutlineLandmark(false);
     }
 
     function hideError() {
@@ -335,6 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const timeline = createClickableList(currentOutlineItems);
                 outlineDiv.innerHTML = '';
                 outlineDiv.appendChild(timeline);
+                updateOutlineLandmark(true);
                 
                 // Don't initialize accessibility during streaming - wait for streamingCompleted
                 // This prevents multiple "Outline is ready" announcements
@@ -397,9 +452,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     let completionMessage = `Timeline generation complete. ${totalTurns} conversation turn${totalTurns !== 1 ? 's' : ''} available.`;
                     
                     if (hasSubcontent) {
-                        completionMessage += ` Each turn may contain sections and details. Use arrow keys to navigate, Space to jump to content, VO+Space to expand or collapse. Press Command+Shift+T to jump to first turn.`;
+                        completionMessage += ` Each turn may contain sections and details. On macOS, content auto-expands when focused. Use arrow keys to navigate, Space to jump. VO+Shift+Down to enter content. Press Command+Shift+T to jump to first turn.`;
                     } else {
-                        completionMessage += ` Use arrow keys to navigate, Space to jump to content. Press Command+Shift+T to jump to first turn.`;
+                        completionMessage += ` Use arrow keys to navigate, Space to jump. Press Command+Shift+T to jump to first turn.`;
                     }
                     
                     window.EchoNavAccessibility.announce(completionMessage);
@@ -415,6 +470,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Update Insight View state
                 updateInsightWelcomeState();
+                
+                // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                if (currentOutlineItems && currentOutlineItems.length > 0) {
+                    safelyEnableOutlineView(currentOutlineItems, 500); // Shorter delay after streaming completion
+                }
                 
                 // Check for new messages after completion
             } else if (request.action === "logicalHierarchyUpdated") {
@@ -473,9 +533,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         const ul = createClickableList(items);
                         outlineDiv.innerHTML = '';
                         outlineDiv.appendChild(ul);
+                        updateOutlineLandmark(true);
                         initializeAccessibilityFeatures();
                         startPolling();
                         updateInsightWelcomeState();
+                        
+                        // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                        console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 1) with", items.length, "items");
+                        safelyEnableOutlineView(items, 1200); // Longer delay for URL change scenario
                     }
                 } else {
                     // No cache - this is a new conversation, check if AI has completed
@@ -484,6 +549,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     newConversationMessage.style.display = 'none';
                     newConversationMessage.classList.add('hidden');
                     outlineDiv.innerHTML = '';
+                    updateOutlineLandmark(false);
                     
                     // Check immediately if AI response is complete
                     chrome.runtime.sendMessage({ action: "checkNewMessages" }, (response) => {
@@ -516,45 +582,88 @@ document.addEventListener('DOMContentLoaded', () => {
             // Scenario 2: From conversation with ID to new conversation
             // User clicked "New Chat" - show waiting message
             console.log("EchoNav: User started new conversation, showing waiting message");
-            resetSidepanel();
-            await updateWelcomeState(); // This will show new conversation message and start polling
+            
+            // Exit outline view before resetting and wait for completion
+            chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, { action: 'toggleOutlineView', mode: 'exit' }, async () => {
+                        console.log("EchoNav: Exit outline view completed for new conversation");
+                        
+                        // Wait a bit to ensure DOM cleanup is complete
+                        setTimeout(async () => {
+                            resetSidepanel();
+                            await updateWelcomeState(); // This will show new conversation message and start polling
+                        }, 300); // 300ms delay to ensure complete cleanup
+                    });
+                } else {
+                    // No active tab, proceed anyway
+                    resetSidepanel();
+                    await updateWelcomeState();
+                }
+            });
             
         } else if (!wasNewConversation && !isNowNew) {
             // Scenario 3: From one conversation with ID to another conversation with ID
             // User switched conversations - try to load cache or show welcome message
             console.log("EchoNav: User switched to different conversation, loading cache or showing welcome");
-            stopPolling();
-            stopNewConversationPolling();
-            hideError();
-            outlineDiv.innerHTML = '';
-            currentOutlineItems = [];
-            resetInsightViewForNewURL();
             
-            // Try to load cached outline for this conversation
-            chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
-                if (response && response.data && (response.data.summary || response.data.outline)) {
-                    console.log("EchoNav: Found cached outline for switched conversation");
-                    const { summary, outline, items } = response.data;
-                    const outlineText = summary || outline;
-                    welcomeMessage.style.display = 'none';
-                    fullTextToRead = outlineText;
-                    currentOutlineItems = items || [];
-                    
-                    if (items && items.length > 0) {
-                        const ul = createClickableList(items);
-                        outlineDiv.appendChild(ul);
-                        initializeAccessibilityFeatures();
-                        startPolling();
-                        updateInsightWelcomeState();
-                    }
+            // Step 1: Exit outline view before switching and wait for completion
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, { action: 'toggleOutlineView', mode: 'exit' }, () => {
+                        console.log("EchoNav: Exit outline view completed for conversation switch");
+                        
+                        // Step 2: Wait a bit to ensure DOM cleanup is complete, then proceed with loading new outline
+                        setTimeout(() => {
+                            loadNewConversationOutline();
+                        }, 300); // 300ms delay to ensure complete cleanup
+                    });
                 } else {
-                    // No cache for this conversation - show welcome message (user must manually generate)
-                    console.log("EchoNav: No cache for switched conversation, showing welcome message");
-                    welcomeMessage.style.display = 'block';
-                    newConversationMessage.style.display = 'none';
-                    newConversationMessage.classList.add('hidden');
+                    // No active tab, proceed anyway
+                    loadNewConversationOutline();
                 }
             });
+            
+            // Helper function to load new conversation outline
+            function loadNewConversationOutline() {
+                stopPolling();
+                stopNewConversationPolling();
+                hideError();
+                outlineDiv.innerHTML = '';
+                updateOutlineLandmark(false);
+                currentOutlineItems = [];
+                resetInsightViewForNewURL();
+                
+                // Try to load cached outline for this conversation
+                chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+                    if (response && response.data && (response.data.summary || response.data.outline)) {
+                        console.log("EchoNav: Found cached outline for switched conversation");
+                        const { summary, outline, items } = response.data;
+                        const outlineText = summary || outline;
+                        welcomeMessage.style.display = 'none';
+                        fullTextToRead = outlineText;
+                        currentOutlineItems = items || [];
+                        
+                        if (items && items.length > 0) {
+                            const ul = createClickableList(items);
+                            outlineDiv.appendChild(ul);
+                            initializeAccessibilityFeatures();
+                            startPolling();
+                            updateInsightWelcomeState();
+                            
+                            // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                            console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 3) with", items.length, "items");
+                            safelyEnableOutlineView(items, 1200); // Longer delay for conversation switch
+                        }
+                    } else {
+                        // No cache for this conversation - show welcome message (user must manually generate)
+                        console.log("EchoNav: No cache for switched conversation, showing welcome message");
+                        welcomeMessage.style.display = 'block';
+                        newConversationMessage.style.display = 'none';
+                        newConversationMessage.classList.add('hidden');
+                    }
+                });
+            }
             
         } else {
             // Scenario 4: New to new (shouldn't happen often, but handle gracefully)
@@ -571,6 +680,7 @@ document.addEventListener('DOMContentLoaded', () => {
         newConversationMessage.classList.add('hidden');
         hideError();
         outlineDiv.innerHTML = '';
+        updateOutlineLandmark(false);
         // TTS is now available through more options menu
         fullTextToRead = '';
         currentOutlineItems = [];
@@ -596,6 +706,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const ul = createClickableList(items);
                     outlineDiv.innerHTML = '';
                     outlineDiv.appendChild(ul);
+                    updateOutlineLandmark(true);
                     
                     // Initialize accessibility features for the cached outline
                     initializeAccessibilityFeatures();
@@ -605,12 +716,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     // Update Insight View state when Timeline data changes
                     updateInsightWelcomeState();
+                    
+                    // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                    console.log("EchoNav: Auto-enabling outline view from cached outline with", items.length, "items");
+                    safelyEnableOutlineView(items, 800); // Medium delay for initial load
                 } else {
                     // Fallback: parse the outline text if items are not available
                     const tree = parseSummaryToTree(outlineText);
                     const ul = createTreeElement(tree);
                     outlineDiv.innerHTML = '';
                     outlineDiv.appendChild(ul);
+                    updateOutlineLandmark(true);
                 }
             } else {
                 console.log("EchoNav: No cached outline found");
@@ -627,16 +743,40 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (_) {
             return;
         }
+        
+        // Skip check if an update is already in progress
+        if (isUpdatingOutline) {
+            console.log("EchoNav: Update already in progress, skipping checkForNewMessages");
+            return;
+        }
+        
         chrome.runtime.sendMessage({ action: "checkNewMessages" }, (response) => {
-            if (response && response.hasNewMessages) {
+            // Handle potential undefined response or runtime errors
+            if (!response) {
+                console.log("EchoNav: No response from checkNewMessages, skipping check");
+                return;
+            }
+            
+            // Double-check the flag before triggering update (race condition protection)
+            if (isUpdatingOutline) {
+                console.log("EchoNav: Update started during checkNewMessages, skipping");
+                return;
+            }
+            
+            if (response.hasNewMessages) {
                 if (autoUpdateToggle.checked) {
+                    console.log("EchoNav: New messages detected, triggering update");
                     updateOutline();
                 }
-            } else if (response && response.pendingTurns > 0) {
+            } else if (response.pendingTurns > 0) {
+                // AI is still generating, check again soon
+                console.log(`EchoNav: ${response.pendingTurns} pending turns, rechecking in 2s`);
                 setTimeout(() => {
                     checkForNewMessages();
                 }, 2000);
-            } else if (response && response.completeTurns > 0) {
+            } else if (response.completeTurns > 0) {
+                // Complete turns found in new conversation, trigger update
+                console.log(`EchoNav: ${response.completeTurns} complete turns found, triggering update`);
                 setTimeout(() => {
                     updateOutline();
                 }, 500);
@@ -667,6 +807,26 @@ document.addEventListener('DOMContentLoaded', () => {
             clearInterval(pollingInterval);
             pollingInterval = null;
         }
+    }
+
+    // Helper function to safely enable outline view with delay for page load
+    function safelyEnableOutlineView(items, delay = 1000) {
+        if (!items || items.length === 0) {
+            console.log("EchoNav: No items to enable outline view");
+            return;
+        }
+        
+        console.log("EchoNav: Scheduling outline view enablement with", items.length, "items after", delay, "ms");
+        setTimeout(() => {
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, {
+                        action: 'autoEnableOutlineView',
+                        outlineItems: items
+                    });
+                }
+            });
+        }, delay);
     }
 
     // Check if we're on a new conversation page (no conversation ID in URL)
@@ -756,19 +916,62 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Update outline with new messages only
-    function updateOutline() {
+    function updateOutline(retryCount = 0) {
+        // Prevent concurrent calls
+        if (isUpdatingOutline) {
+            console.log("EchoNav: updateOutline already in progress, ignoring duplicate call");
+            return;
+        }
+        
+        // Set the flag to indicate update is in progress
+        isUpdatingOutline = true;
+        console.log("EchoNav: Starting outline update (flag set)");
+        
         chrome.runtime.sendMessage({ action: "updateOutline" }, (response) => {
             if (response.error) {
+                // Only show error for non-retryable errors
                 showError(response.error);
+                updateOutlineRetryCount = 0; // Reset retry count
+                isUpdatingOutline = false; // Clear flag on error
+                console.log("EchoNav: Update failed with error, flag cleared");
                 return;
             }
             
             if (response.pending) {
-                if (response.message && response.message.includes("No new turns found")) {
-                    setTimeout(() => {
-                        updateOutline();
-                    }, 1000);
+                // Handle content script not ready (temporary condition)
+                if (response.contentScriptNotReady) {
+                    if (retryCount < MAX_UPDATE_RETRY) {
+                        console.log(`EchoNav: Content script not ready, retrying (${retryCount + 1}/${MAX_UPDATE_RETRY})...`);
+                        // Clear flag before retry
+                        isUpdatingOutline = false;
+                        // Exponential backoff: 300ms, 600ms, 1200ms, 2400ms, 4800ms
+                        const retryDelay = Math.min(300 * Math.pow(2, retryCount), 5000);
+                        setTimeout(() => {
+                            updateOutline(retryCount + 1);
+                        }, retryDelay);
+                    } else {
+                        console.warn("EchoNav: Max retry attempts reached for content script initialization");
+                        // Don't show error - it will likely succeed on next polling cycle
+                        updateOutlineRetryCount = 0;
+                        isUpdatingOutline = false; // Clear flag after max retries
+                        console.log("EchoNav: Max retries reached, flag cleared");
+                    }
+                    return;
                 }
+                
+                // Handle no new turns found
+                if (response.message && response.message.includes("No new turns found")) {
+                    // Clear flag before retry
+                    isUpdatingOutline = false;
+                    setTimeout(() => {
+                        updateOutline(retryCount);
+                    }, 1000);
+                    return;
+                }
+                
+                // Other pending cases - clear flag
+                isUpdatingOutline = false;
+                console.log("EchoNav: Update pending (other reason), flag cleared");
                 return;
             }
             
@@ -780,17 +983,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ul = createClickableList(items);
                 outlineDiv.innerHTML = '';
                 outlineDiv.appendChild(ul);
+                updateOutlineLandmark(true);
+                
+                // Reset retry count on success
+                updateOutlineRetryCount = 0;
                 
                 // Initialize accessibility features for the updated outline
                 initializeAccessibilityFeatures();
+                
+                // Clear flag on success
+                isUpdatingOutline = false;
+                console.log("EchoNav: Update completed successfully, flag cleared");
                 
                 // Restart polling for new messages
                 startPolling();
                 
                 // Update Insight View state when Timeline data changes
                 updateInsightWelcomeState();
+                
+                // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                if (items && items.length > 0) {
+                    console.log("EchoNav: Auto-enabling outline view from updated outline with", items.length, "items");
+                    safelyEnableOutlineView(items, 600); // Short delay for update scenario
+                }
             } else {
                 showError("Could not update outline.");
+                updateOutlineRetryCount = 0; // Reset retry count
+                isUpdatingOutline = false; // Clear flag on failure
+                console.log("EchoNav: Update failed (no data), flag cleared");
             }
         });
     }
@@ -868,12 +1088,20 @@ document.addEventListener('DOMContentLoaded', () => {
             isMoreOptionsOpen = true;
             moreOptionsPopup.classList.remove('hidden');
             moreOptionsBtn.setAttribute('aria-expanded', 'true');
+            
+            // Focus on the first menu item when opening
+            setTimeout(() => {
+                regenerateOption.focus();
+            }, 50); // Small delay to ensure DOM is updated
         }
 
         function closeMoreOptions() {
             isMoreOptionsOpen = false;
             moreOptionsPopup.classList.add('hidden');
             moreOptionsBtn.setAttribute('aria-expanded', 'false');
+            
+            // Return focus to the button when closing
+            moreOptionsBtn.focus();
         }
 
         // Handle Insight tab switch
@@ -1227,6 +1455,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const ul = createClickableList(items);
             outlineDiv.innerHTML = '';
             outlineDiv.appendChild(ul);
+            updateOutlineLandmark(true);
             
             // Initialize accessibility features for the new outline
             initializeAccessibilityFeatures();
@@ -1381,7 +1610,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Announce to user
             const itemTitle = latestItem.querySelector('.timeline-title')?.textContent || 'Latest turn';
-            window.EchoNavAccessibility.announce(`Focused on latest conversation turn: ${itemTitle}. Use arrow keys to navigate, Space to jump to content, VO+Space to expand/collapse.`);
+            window.EchoNavAccessibility.announce(`Focused on latest conversation turn: ${itemTitle}. Use arrow keys to navigate, Space to jump. VO+Shift+Down to enter content.`);
         } else {
             // Fallback: direct focus
             console.log("EchoNav: Accessibility manager not available, using direct focus");
@@ -1778,6 +2007,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // Themes are top-level in B1 → use level-0 style
     item.className = `timeline-hierarchy-item level-0`;
     item.dataset.level = 0;
+    
+    // Set identifiers for accessibility and navigation
+    // Use first paragraphId as the navigation target
+    const firstPara = Array.isArray(theme.paragraphs) && theme.paragraphs.length > 0 ? theme.paragraphs[0] : null;
+    const firstId = firstPara && firstPara.uniqueId ? firstPara.uniqueId : (Array.isArray(theme.paragraphIds) && theme.paragraphIds.length > 0 ? theme.paragraphIds[0] : null);
+    
+    if (firstId) {
+      // For theme items, use paragraphId as the navigation target
+      // accessibility.js will check for this when headingId is not available
+      item.dataset.paragraphId = firstId;
+      // Also set as headingId for compatibility with existing accessibility code
+      item.dataset.headingId = firstId;
+    }
 
     const symbol = document.createElement('span');
     symbol.className = 'timeline-hierarchy-dot';
@@ -1793,8 +2035,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Click → scroll to first paragraph of this theme
     item.addEventListener('click', (e) => {
       e.stopPropagation();
-      const firstPara = Array.isArray(theme.paragraphs) && theme.paragraphs.length > 0 ? theme.paragraphs[0] : null;
-      const firstId = firstPara && firstPara.uniqueId ? firstPara.uniqueId : (Array.isArray(theme.paragraphIds) && theme.paragraphIds.length > 0 ? theme.paragraphIds[0] : null);
       const firstText = firstPara && firstPara.text ? firstPara.text : null;
       
       if (!firstId) {

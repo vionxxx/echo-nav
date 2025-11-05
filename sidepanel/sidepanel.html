@@ -6,11 +6,11 @@
     <title>EchoNav - Conversation Outline Navigator</title>
     <link rel="stylesheet" href="sidepanel.css">
 </head>
-<body role="application" aria-label="EchoNav Conversation Navigator">
+<body role="application" aria-label="EchoNav">
     <!-- Header Section -->
-    <header class="app-header" role="banner">
-        <div class="header-brand">
-            <img src="../icons/icon48.png" alt="EchoNav Logo" class="logo" />
+    <header class="app-header" role="presentation">
+        <div class="header-brand" aria-hidden="true">
+            <img src="../icons/icon48.png" alt="" class="logo" />
             <h1 id="app-title">EchoNav</h1>
         </div>
     </header>
@@ -110,37 +110,39 @@
     </main>
 
     <!-- Bottom Navigation Tabs -->
-    <nav class="bottom-tab-nav" role="tablist" aria-label="Main navigation">
-        <button class="tab-btn active" data-tab="timeline" role="tab" aria-selected="true" aria-controls="timeline-tab" id="flow-tab-label">
-            <span class="tab-icon" aria-hidden="true">📋</span>
-            <span class="tab-label">Timeline</span>
-        </button>
-        <button class="tab-btn" data-tab="logical" role="tab" aria-selected="false" aria-controls="logical-tab" id="insight-tab-label">
-            <span class="tab-icon" aria-hidden="true">🧠</span>
-            <span class="tab-label">Insight</span>
-        </button>
-        <button class="tab-btn" data-tab="setting" role="tab" aria-selected="false" aria-controls="setting-tab" id="setting-tab-label">
-            <span class="tab-icon" aria-hidden="true">⚙️</span>
-            <span class="tab-label">Setting</span>
-        </button>
-    </nav>
+    <div role="group" aria-label="Main navigation tabs">
+        <nav class="bottom-tab-nav" role="tablist">
+            <button class="tab-btn active" data-tab="timeline" role="tab" aria-selected="true" aria-controls="timeline-tab" id="flow-tab-label">
+                <span class="tab-icon" aria-hidden="true">📋</span>
+                <span class="tab-label">Timeline</span>
+            </button>
+            <button class="tab-btn" data-tab="logical" role="tab" aria-selected="false" aria-controls="logical-tab" id="insight-tab-label">
+                <span class="tab-icon" aria-hidden="true">🧠</span>
+                <span class="tab-label">Insight</span>
+            </button>
+            <button class="tab-btn" data-tab="setting" role="tab" aria-selected="false" aria-controls="setting-tab" id="setting-tab-label">
+                <span class="tab-icon" aria-hidden="true">⚙️</span>
+                <span class="tab-label">Setting</span>
+            </button>
+        </nav>
+    </div>
 
     <!-- More Options Button -->
-    <button id="more-options-btn" class="more-options-btn" aria-label="More options" aria-expanded="false" aria-haspopup="menu">
+    <button id="more-options-btn" class="more-options-btn" aria-label="More options button" aria-expanded="false" aria-haspopup="menu">
         <span class="more-dots" aria-hidden="true">⋯</span>
     </button>
 
     <!-- More Options Popup -->
-    <div id="more-options-popup" class="more-options-popup hidden" role="menu" aria-labelledby="more-options-btn">
-        <button id="regenerate-option" class="popup-option" role="menuitem">
+    <div id="more-options-popup" class="more-options-popup hidden" role="group" aria-label="More options menu, 3 items">
+        <button id="regenerate-option" class="popup-option" role="button" aria-posinset="1" aria-setsize="3">
             <span class="popup-icon" aria-hidden="true">🔄</span>
             <span class="popup-text">Regenerate</span>
         </button>
-        <button id="share-option" class="popup-option" role="menuitem">
+        <button id="share-option" class="popup-option" role="button" aria-posinset="2" aria-setsize="3">
             <span class="popup-icon" aria-hidden="true">📤</span>
             <span class="popup-text">Share</span>
         </button>
-        <button id="fullscreen-option" class="popup-option" role="menuitem">
+        <button id="fullscreen-option" class="popup-option" role="button" aria-posinset="3" aria-setsize="3">
             <span class="popup-icon" aria-hidden="true">⛶</span>
             <span class="popup-text">Enter Fullscreen</span>
         </button>
@@ -150,8 +152,7 @@
     <div id="aria-announcements" 
          role="status" 
          aria-live="polite" 
-         aria-atomic="true" 
-         aria-label="EchoNav status announcements"
+         aria-atomic="true"
          style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;">
     </div>
 

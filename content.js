@@ -3,6 +3,19 @@ console.log("EchoNav: Current URL:", window.location.href);
 console.log("EchoNav: Document ready state:", document.readyState);
 console.log("EchoNav: Content script version:", "1.0.0");
 
+// Clean up any leftover temporary outline headers from previous sessions
+setTimeout(() => {
+    const staleHeaders = document.querySelectorAll('.echonav-outline-header[data-echonav-temp-header="true"]');
+    staleHeaders.forEach(header => {
+        if (header.parentNode) {
+            header.parentNode.removeChild(header);
+        }
+    });
+    if (staleHeaders.length > 0) {
+        console.log(`EchoNav: Cleaned up ${staleHeaders.length} stale temporary outline headers on page load`);
+    }
+}, 1000); // Wait 1 second for page to stabilize
+
 // Ensure the script is properly loaded
 if (typeof chrome !== 'undefined' && chrome.runtime) {
     console.log("EchoNav: Chrome runtime available");
@@ -24,6 +37,7 @@ console.log("EchoNav: VoiceOver optimization initialized");
 
 // Create ARIA live region for screen reader announcements
 let ariaLiveRegion = null;
+let ariaLiveRegionPolite = null; // Separate region for longer announcements that shouldn't be interrupted
 
 function createAriaLiveRegion() {
     if (!ariaLiveRegion) {
@@ -39,22 +53,46 @@ function createAriaLiveRegion() {
             overflow: hidden;
         `;
         document.body.appendChild(ariaLiveRegion);
-        console.log("EchoNav: Created ARIA live region for VoiceOver announcements");
+        console.log("EchoNav: Created ARIA live region (assertive) for VoiceOver announcements");
+    }
+    
+    // Create a separate polite region for long announcements (keypoints)
+    if (!ariaLiveRegionPolite) {
+        ariaLiveRegionPolite = document.createElement('div');
+        ariaLiveRegionPolite.id = 'echonav-aria-live-polite';
+        ariaLiveRegionPolite.setAttribute('aria-live', 'polite');
+        ariaLiveRegionPolite.setAttribute('aria-atomic', 'true');
+        ariaLiveRegionPolite.style.cssText = `
+            position: absolute;
+            left: -10000px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+        `;
+        document.body.appendChild(ariaLiveRegionPolite);
+        console.log("EchoNav: Created ARIA live region (polite) for long announcements");
     }
 }
 
 function announceToScreenReader(message) {
     createAriaLiveRegion();
     
+    console.log("EchoNav: DEBUG - announceToScreenReader called with:", message ? `"${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"` : '(empty)');
+    
     if (ariaLiveRegion) {
-        // Clear previous message
-        ariaLiveRegion.textContent = '';
+        // If message is empty, clear immediately without delay
+        if (!message || message === '') {
+            ariaLiveRegion.textContent = '';
+            console.log("EchoNav: ✅ Cleared aria-live region");
+            return;
+        }
         
-        // Set new message with small delay to ensure screen reader picks it up
-        setTimeout(() => {
-            ariaLiveRegion.textContent = message;
-            console.log("EchoNav: Announced to screen reader:", message);
-        }, 100);
+        // For non-empty messages, update directly without clearing first
+        // This prevents interrupting ongoing VoiceOver announcements
+        ariaLiveRegion.textContent = message;
+        console.log("EchoNav: ✅ Set aria-live region text to:", message ? `"${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"` : '(empty)');
+    } else {
+        console.error("EchoNav: ERROR - aria-live region not found!");
     }
 }
 
@@ -241,6 +279,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         } else if (request.action === "enterFullscreenWithFloatingButton") {
             enterFullscreenWithFloatingButton(request.outlineItems);
             sendResponse({ success: true });
+        } else if (request.action === "autoEnableOutlineView") {
+            // Auto-enable outline view when Timeline has content (without hiding side panel)
+            console.log("EchoNav auto-enabling outline view with", request.outlineItems?.length, "items");
+            if (request.outlineItems && request.outlineItems.length > 0) {
+                enterOutlineView(request.outlineItems);
+            }
+            sendResponse({ success: true });
         } else if (request.action === "urlChanged") {
             if (treeUIIframe && treeUIIframe.contentWindow) {
                 // Relay the message to the iframe so it can update its content
@@ -253,9 +298,61 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } else {
                 stopResponseMonitoring();
             }
+        } else if (request.action === "readFullAnswer") {
+            // Handle VO+Y shortcut command
+            console.log("EchoNav: Received readFullAnswer command from background");
+            readFullAnswerArticle();
+            sendResponse({ success: true });
+        } else if (request.action === "updateOutlineHeaderTitle") {
+            // Update temporary outline header with the newly generated title
+            console.log(`EchoNav: Received title update for message ${request.messageIndex}: "${request.title}"`);
+            updateOutlineHeaderTitle(request.messageIndex, request.title, request.item);
+            sendResponse({ success: true });
         }
     return true; // Keep the message channel open for async response
   });
+
+  // Function to update outline header title when the real title is generated
+  function updateOutlineHeaderTitle(messageIndex, newTitle, fullItem) {
+    try {
+        console.log(`EchoNav: Updating outline header title for message ${messageIndex}`);
+        
+        // Find the temporary outline header with this message index
+        const tempHeaders = document.querySelectorAll('[data-echonav-temp-header="true"]');
+        let targetHeader = null;
+        
+        for (const header of tempHeaders) {
+            if (header.getAttribute('data-echonav-message-index') === messageIndex.toString()) {
+                targetHeader = header;
+                break;
+            }
+        }
+        
+        if (!targetHeader) {
+            console.warn(`EchoNav: Could not find temporary outline header for message ${messageIndex}`);
+            return;
+        }
+        
+        console.log(`EchoNav: Found outline header to update:`, targetHeader);
+        
+        // Find the title element within the header and update it
+        const titleElement = targetHeader.querySelector('.echonav-outline-title');
+        if (titleElement) {
+            const oldTitle = titleElement.textContent;
+            titleElement.textContent = newTitle;
+            console.log(`EchoNav: ✅ Updated title from "${oldTitle}" to "${newTitle}"`);
+        } else {
+            console.warn("EchoNav: Could not find title element within outline header");
+        }
+        
+        // Remove the temporary flag since it now has the real title
+        targetHeader.removeAttribute('data-echonav-temp-header');
+        console.log("EchoNav: Removed temporary flag from outline header");
+        
+    } catch (error) {
+        console.error("EchoNav: Error updating outline header title:", error);
+    }
+  }
 
   // Helper function to clean text for matching: remove emojis and standardize numbering
   function cleanTextForMatching(text) {
@@ -872,16 +969,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   let originalConversationElements = new Map(); // Store original elements and their states
   let outlineHeaders = new Map(); // Store injected outline headers
 
-  function enterOutlineView(outlineItems) {
+  function enterOutlineView(outlineItems, shouldCollapseAll = false) {
     if (isOutlineViewActive) {
       console.log("EchoNav: Outline view already active");
       return;
     }
 
-    console.log("EchoNav: Entering outline view mode with", outlineItems.length, "items");
+    console.log("EchoNav: Entering outline view mode with", outlineItems.length, "items", shouldCollapseAll ? "(collapsed)" : "(expanded)");
     
-    // Add body class to hide inline keypoints during fullscreen
-    document.body.classList.add('echonav-fullscreen-active');
+    // Clean up any existing immediate outline headers before creating formal ones
+    const immediateHeaders = document.querySelectorAll('.echonav-outline-header[data-echonav-temp-header="true"]');
+    immediateHeaders.forEach(header => {
+      if (header.parentNode) {
+        header.parentNode.removeChild(header);
+      }
+    });
+    if (immediateHeaders.length > 0) {
+      console.log(`EchoNav: Cleaned up ${immediateHeaders.length} immediate outline headers before entering outline view`);
+    }
+    
+    // Add body class for outline view
+    document.body.classList.add('echonav-outline-view-active');
       
     // Add outline view styles
     addOutlineViewStyles();
@@ -960,20 +1068,224 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const allTurnElements = [...Array.from(containersToHide), ...interactionButtons];
         console.log(`EchoNav: Turn ${index} contains ${containersToHide.size} containers and ${interactionButtons.length} interaction buttons`);
         
-        // Store original elements
+        // ===== VOICEOVER ROTOR LANDMARKS CUSTOMIZATION =====
+        // Override VoiceOver Rotor landmarks with round titles for better accessibility
+        const roundTitle = `Round ${index + 1}: ${item.title}`;
+        const containersArray = Array.from(containersToHide);
+        
+        // Find the actual landmark containers (outermost <article> with sr-only heading)
+        const landmarkContainers = new Set();
+        containersArray.forEach(container => {
+          // Look for the outermost article element that contains sr-only heading
+          let current = container;
+          let articleElement = null;
+          
+          while (current && current !== document.body) {
+            if (current.tagName === 'ARTICLE') {
+              // Check if this article has a sr-only heading
+              const srHeading = current.querySelector('h5.sr-only, h6.sr-only');
+              if (srHeading) {
+                articleElement = current;
+                break;
+              }
+            }
+            current = current.parentElement;
+          }
+          
+          if (articleElement) {
+            landmarkContainers.add(articleElement);
+          }
+        });
+        
+        const landmarkArray = Array.from(landmarkContainers);
+        console.log(`EchoNav: Found ${landmarkArray.length} landmark containers for turn ${index}`);
+        
+        landmarkArray.forEach((landmarkContainer, containerIndex) => {
+          const srHeading = landmarkContainer.querySelector('h5.sr-only, h6.sr-only');
+          
+          // Store original ARIA attributes and sr-only text for restoration
+          if (!landmarkContainer.hasAttribute('data-echonav-original-role')) {
+            const originalRole = landmarkContainer.getAttribute('role');
+            const originalLabel = landmarkContainer.getAttribute('aria-label');
+            const originalLabelledby = landmarkContainer.getAttribute('aria-labelledby');
+            const originalHeadingText = srHeading ? srHeading.textContent : '';
+            
+            landmarkContainer.setAttribute('data-echonav-original-role', originalRole || '');
+            landmarkContainer.setAttribute('data-echonav-original-label', originalLabel || '');
+            landmarkContainer.setAttribute('data-echonav-original-labelledby', originalLabelledby || '');
+            landmarkContainer.setAttribute('data-echonav-original-heading', originalHeadingText);
+          }
+          
+          if (containerIndex === 0) {
+            // First landmark: User's question
+            landmarkContainer.setAttribute('role', 'region');
+            landmarkContainer.setAttribute('aria-label', roundTitle);
+            if (srHeading) {
+              // Store original heading tag name for restoration
+              const originalTag = srHeading.tagName.toLowerCase();
+              landmarkContainer.setAttribute('data-echonav-original-heading-tag', originalTag);
+              
+              // Change to h1 for highest heading hierarchy in VoiceOver Rotor
+              const newHeading = document.createElement('h1');
+              newHeading.className = 'sr-only';
+              newHeading.textContent = roundTitle;
+              
+              // Replace the old heading with new h1
+              srHeading.parentNode.replaceChild(newHeading, srHeading);
+              
+              // Store reference to new heading for later restoration
+              landmarkContainer.setAttribute('data-echonav-replaced-heading', 'true');
+            }
+            console.log(`EchoNav: Set user question landmark for turn ${index} as h1:`, roundTitle);
+          } else if (containerIndex === 1) {
+            // Second landmark: ChatGPT's response - override "ChatGPT said: article"
+            // Count words in AI response
+            const responseText = landmarkContainer.innerText || landmarkContainer.textContent || '';
+            const wordCount = responseText.trim().split(/\s+/).filter(word => word.length > 0).length;
+            
+            const aiResponseLabel = `AI Response for Round ${index + 1}, ${wordCount} words in total`;
+            landmarkContainer.setAttribute('role', 'region');
+            landmarkContainer.setAttribute('aria-label', aiResponseLabel);
+            if (srHeading) {
+              // Hide from Rotor Headings but keep for Landmarks
+              srHeading.setAttribute('aria-hidden', 'true');
+              srHeading.textContent = aiResponseLabel;
+            }
+            console.log(`EchoNav: Set AI response landmark for turn ${index}:`, aiResponseLabel);
+          } else {
+            // Additional landmarks: Hide from Rotor
+            landmarkContainer.setAttribute('role', 'group');
+            landmarkContainer.removeAttribute('aria-label');
+            landmarkContainer.removeAttribute('aria-labelledby');
+            if (srHeading) {
+              srHeading.setAttribute('aria-hidden', 'true');
+            }
+            console.log(`EchoNav: Hidden additional landmark for turn ${index}`);
+          }
+        });
+        
+        // ===== OPTIMIZE HEADINGS FOR VOICEOVER ROTOR =====
+        // Hide h5 and h6 headings, and remove emoji from all headings
+        landmarkArray.forEach(landmarkContainer => {
+          // Find all h5 and h6 headings and hide them from Rotor Headings
+          const h5h6Headings = landmarkContainer.querySelectorAll('h5:not(.sr-only), h6:not(.sr-only)');
+          h5h6Headings.forEach(heading => {
+            if (!heading.hasAttribute('data-echonav-original-aria-hidden')) {
+              const originalAriaHidden = heading.getAttribute('aria-hidden');
+              heading.setAttribute('data-echonav-original-aria-hidden', originalAriaHidden || '');
+            }
+            heading.setAttribute('aria-hidden', 'true');
+          });
+          
+          // Find all headings (h2, h3, h4) and determine the highest level in this turn
+          const headingsToClean = landmarkContainer.querySelectorAll('h2:not(.sr-only), h3:not(.sr-only), h4:not(.sr-only)');
+          
+          // Determine the highest heading level (lowest number)
+          let highestLevel = 6; // Start with lowest priority
+          headingsToClean.forEach(heading => {
+            const level = parseInt(heading.tagName.substring(1));
+            if (level < highestLevel) {
+              highestLevel = level;
+            }
+          });
+          
+          console.log(`EchoNav: Turn ${index} highest heading level:`, highestLevel);
+          
+          // Clean and add Section/Subsection prefix to headings using aria-label
+          headingsToClean.forEach(heading => {
+            if (!heading.hasAttribute('data-echonav-original-aria-label')) {
+              const originalText = heading.textContent;
+              const originalAriaLabel = heading.getAttribute('aria-label');
+              
+              // Store original aria-label for restoration
+              heading.setAttribute('data-echonav-original-aria-label', originalAriaLabel || '');
+              
+              // First, CONVERT emoji numbers to regular numbers, then remove other emoji
+              let cleanedText = originalText;
+              
+              // Step 1: Convert keycap number emoji (1️⃣2️⃣3️⃣) to regular numbers
+              cleanedText = cleanedText
+                .replace(/0\uFE0F?\u20E3/gu, '0. ')
+                .replace(/1\uFE0F?\u20E3/gu, '1. ')
+                .replace(/2\uFE0F?\u20E3/gu, '2. ')
+                .replace(/3\uFE0F?\u20E3/gu, '3. ')
+                .replace(/4\uFE0F?\u20E3/gu, '4. ')
+                .replace(/5\uFE0F?\u20E3/gu, '5. ')
+                .replace(/6\uFE0F?\u20E3/gu, '6. ')
+                .replace(/7\uFE0F?\u20E3/gu, '7. ')
+                .replace(/8\uFE0F?\u20E3/gu, '8. ')
+                .replace(/9\uFE0F?\u20E3/gu, '9. ');
+              
+              // Step 2: Convert enclosed alphanumerics (①②③) to regular numbers
+              cleanedText = cleanedText
+                .replace(/\u2460/gu, '1. ')  // ①
+                .replace(/\u2461/gu, '2. ')  // ②
+                .replace(/\u2462/gu, '3. ')  // ③
+                .replace(/\u2463/gu, '4. ')  // ④
+                .replace(/\u2464/gu, '5. ')  // ⑤
+                .replace(/\u2465/gu, '6. ')  // ⑥
+                .replace(/\u2466/gu, '7. ')  // ⑦
+                .replace(/\u2467/gu, '8. ')  // ⑧
+                .replace(/\u2468/gu, '9. ')  // ⑨
+                .replace(/\u2469/gu, '10. '); // ⑩
+              
+              // Step 3: Remove remaining emoji and special characters
+              cleanedText = cleanedText
+                // Remove standard emoji
+                .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}]/gu, '')
+                // Remove variation selectors and combining characters
+                .replace(/[\uFE00-\uFE0F\u20D0-\u20FF]/gu, '')
+                // Remove any remaining enclosed alphanumerics
+                .replace(/[\u2460-\u24FF]/gu, '')
+                .trim();
+              
+              // Add Section/Subsection prefix to ALL headings
+              const currentLevel = parseInt(heading.tagName.substring(1));
+              const isHighestLevel = (currentLevel === highestLevel);
+              
+              // Check if the heading starts with a number
+              const numberMatch = cleanedText.match(/^(\d+)\s*[\.．:：]\s*/);
+              
+              if (numberMatch) {
+                // Has a number - use prefix WITHOUT colon
+                const prefix = isHighestLevel ? 'Section ' : 'Subsection ';
+                cleanedText = cleanedText.replace(/^(\d+)\s*[\.．:：]\s*/, prefix + '$1. ');
+              } else {
+                // No number - use prefix WITH colon
+                const prefix = isHighestLevel ? 'Section: ' : 'Subsection: ';
+                // First clean up any decorative patterns
+                cleanedText = cleanedText.replace(/^[^\d\w\s]+\s*/, '');
+                cleanedText = prefix + cleanedText;
+              }
+              
+              // Set aria-label instead of changing textContent
+              // This way VoiceOver reads the cleaned text, but visual users see the original
+              heading.setAttribute('aria-label', cleanedText);
+              console.log(`EchoNav: Set aria-label for heading in turn ${index}:`, originalText, '→', cleanedText);
+            }
+          });
+        });
+        
+        // Store original elements and landmark containers for restoration
         originalConversationElements.set(index, {
           elements: allTurnElements,
-          originalDisplays: allTurnElements.map(el => el.style.display || 'block')
+          originalDisplays: allTurnElements.map(el => el.style.display || 'block'),
+          containers: containersArray,
+          landmarkContainers: landmarkArray
         });
         
-        // Hide all elements in this turn (including the latest turn)
-        allTurnElements.forEach((element, i) => {
-          console.log(`EchoNav: Hiding element ${i} for turn ${index}:`, element);
-          element.style.display = 'none';
-        });
+        // Conditionally hide elements based on shouldCollapseAll parameter
+        if (shouldCollapseAll) {
+          allTurnElements.forEach((element, i) => {
+            console.log(`EchoNav: Hiding element ${i} for turn ${index}:`, element);
+            element.style.display = 'none';
+          });
+        } else {
+          console.log(`EchoNav: Keeping turn ${index} expanded (${allTurnElements.length} elements visible)`);
+        }
         
         // Create and inject outline header before the first container
-        const outlineHeader = createOutlineHeader(item, index, false); // Always treat as not last item for consistent behavior
+        const outlineHeader = createOutlineHeader(item, index, !shouldCollapseAll); // Pass expansion state
         const firstContainer = Array.from(containersToHide)[0];
         if (firstContainer && firstContainer.parentNode) {
           firstContainer.parentNode.insertBefore(outlineHeader, firstContainer);
@@ -1018,12 +1330,101 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     outlineHeaders.clear();
     
-    // Restore all original conversation elements
+    // Restore all original conversation elements and ARIA attributes
     originalConversationElements.forEach((data, index) => {
       if (data.elements && data.originalDisplays) {
         data.elements.forEach((element, i) => {
           if (element && data.originalDisplays[i]) {
             element.style.display = data.originalDisplays[i];
+          }
+        });
+      }
+      
+      // ===== RESTORE VOICEOVER ROTOR LANDMARKS =====
+      // Restore original ARIA attributes and sr-only headings for VoiceOver
+      if (data.landmarkContainers) {
+        data.landmarkContainers.forEach((landmarkContainer, containerIndex) => {
+          if (landmarkContainer.hasAttribute('data-echonav-original-role')) {
+            const originalRole = landmarkContainer.getAttribute('data-echonav-original-role');
+            const originalLabel = landmarkContainer.getAttribute('data-echonav-original-label');
+            const originalLabelledby = landmarkContainer.getAttribute('data-echonav-original-labelledby');
+            const originalHeadingText = landmarkContainer.getAttribute('data-echonav-original-heading');
+            
+            // Restore or remove ARIA attributes
+            if (originalRole) {
+              landmarkContainer.setAttribute('role', originalRole);
+            } else {
+              landmarkContainer.removeAttribute('role');
+            }
+            
+            if (originalLabel) {
+              landmarkContainer.setAttribute('aria-label', originalLabel);
+            } else {
+              landmarkContainer.removeAttribute('aria-label');
+            }
+            
+            if (originalLabelledby) {
+              landmarkContainer.setAttribute('aria-labelledby', originalLabelledby);
+            } else {
+              landmarkContainer.removeAttribute('aria-labelledby');
+            }
+            
+            // Restore sr-only heading text and tag
+            if (landmarkContainer.hasAttribute('data-echonav-replaced-heading')) {
+              // We replaced the heading with h1, need to restore original tag
+              const currentHeading = landmarkContainer.querySelector('h1.sr-only');
+              const originalTag = landmarkContainer.getAttribute('data-echonav-original-heading-tag') || 'h5';
+              
+              if (currentHeading && originalHeadingText) {
+                const restoredHeading = document.createElement(originalTag);
+                restoredHeading.className = 'sr-only';
+                restoredHeading.textContent = originalHeadingText;
+                currentHeading.parentNode.replaceChild(restoredHeading, currentHeading);
+              }
+              
+              landmarkContainer.removeAttribute('data-echonav-replaced-heading');
+              landmarkContainer.removeAttribute('data-echonav-original-heading-tag');
+            } else {
+              // Normal restoration for headings we didn't replace
+              const srHeading = landmarkContainer.querySelector('h5.sr-only, h6.sr-only');
+              if (srHeading && originalHeadingText) {
+                srHeading.textContent = originalHeadingText;
+                srHeading.removeAttribute('aria-hidden');
+              }
+            }
+            
+            // ===== RESTORE HEADINGS =====
+            // Restore h5 and h6 headings visibility
+            const h5h6Headings = landmarkContainer.querySelectorAll('h5:not(.sr-only)[data-echonav-original-aria-hidden], h6:not(.sr-only)[data-echonav-original-aria-hidden]');
+            h5h6Headings.forEach(heading => {
+              const originalAriaHidden = heading.getAttribute('data-echonav-original-aria-hidden');
+              if (originalAriaHidden) {
+                heading.setAttribute('aria-hidden', originalAriaHidden);
+              } else {
+                heading.removeAttribute('aria-hidden');
+              }
+              heading.removeAttribute('data-echonav-original-aria-hidden');
+            });
+            
+            // Restore original aria-label for headings
+            const headingsWithCustomAriaLabel = landmarkContainer.querySelectorAll('h2[data-echonav-original-aria-label], h3[data-echonav-original-aria-label], h4[data-echonav-original-aria-label]');
+            headingsWithCustomAriaLabel.forEach(heading => {
+              const originalAriaLabel = heading.getAttribute('data-echonav-original-aria-label');
+              if (originalAriaLabel) {
+                heading.setAttribute('aria-label', originalAriaLabel);
+              } else {
+                heading.removeAttribute('aria-label');
+              }
+              heading.removeAttribute('data-echonav-original-aria-label');
+            });
+            
+            // Clean up our custom data attributes
+            landmarkContainer.removeAttribute('data-echonav-original-role');
+            landmarkContainer.removeAttribute('data-echonav-original-label');
+            landmarkContainer.removeAttribute('data-echonav-original-labelledby');
+            landmarkContainer.removeAttribute('data-echonav-original-heading');
+            
+            console.log(`EchoNav: Restored original VoiceOver landmarks for turn ${index}, landmark ${containerIndex}`);
           }
         });
       }
@@ -1036,8 +1437,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     isOutlineViewActive = false;
     console.log("EchoNav: Outline view mode deactivated");
     
-    // Remove body class to show inline keypoints again
-    document.body.classList.remove('echonav-fullscreen-active');
+    // Remove body class for outline view
+    document.body.classList.remove('echonav-outline-view-active');
     
     removeFloatingButton(); // Also remove floating button on exit
   }
@@ -1047,7 +1448,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   let floatingContainer = null;
 
   function enterFullscreenWithFloatingButton(outlineItems) {
-      if (isOutlineViewActive) return;
+      // Fullscreen mode now ONLY hides side panel - outline view is auto-enabled when Timeline has content
+      console.log("EchoNav: Entering fullscreen mode (hiding side panel)");
 
       // Hide iframe
     if (treeUIIframe) {
@@ -1060,8 +1462,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         mainContainer.style.marginRight = '0px';
     }
 
-    enterOutlineView(outlineItems);
-      createFloatingButton();
+    // Note: We don't call enterOutlineView here anymore - it's auto-enabled when Timeline has content
+    createFloatingButton();
+    
+    // In Fullscreen mode, collapse all turns
+    if (isOutlineViewActive) {
+      collapseAllTurns();
+    }
   }
 
   function createFloatingButton() {
@@ -1143,8 +1550,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 
   function exitFullscreenAndReopenSidePanel() {
-      exitOutlineView();
-      // Show iframe instead of sending message
+      // Fullscreen mode now ONLY shows side panel - outline view remains active
+      console.log("EchoNav: Exiting fullscreen mode (showing side panel)");
+      
+      // Remove floating button when exiting fullscreen
+      removeFloatingButton();
+      
+      // Show iframe
       if (treeUIIframe) {
           treeUIIframe.style.display = 'block';
       }
@@ -1154,6 +1566,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       if (mainContainer) {
           mainContainer.style.marginRight = '380px';
       }
+      
+      // When exiting Fullscreen, expand all turns (back to default state)
+      if (isOutlineViewActive) {
+          expandAllTurns();
+      }
+      
+      // Note: We don't call exitOutlineView here anymore - outline view stays active
   }
 
   function closePlugin() {
@@ -1446,39 +1865,65 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return element.parentElement;
   }
 
-  function createOutlineHeader(item, index, isLastItem) {
+  function createOutlineHeader(item, index, isExpanded) {
     const header = document.createElement('div');
     header.className = 'echonav-outline-header';
     header.dataset.index = index;
     
-    const isExpanded = isLastItem; // Latest item is expanded by default
+    // Set initial expansion state
+    if (isExpanded) {
+      header.classList.add('expanded');
+    }
     
-    // Check if keypoints should be shown
-    chrome.storage.local.get(['showKeypointsInFullscreen'], (result) => {
-      const showKeypoints = result.showKeypointsInFullscreen !== false; // Default to true
-      
-      let keypointsHtml = '';
-      if (showKeypoints && item.parsedKeyPoints && item.parsedKeyPoints.length > 0) {
-        keypointsHtml = `
-          <div class="echonav-outline-keypoints">
-            ${item.parsedKeyPoints.map(kp => `<div class="echonav-keypoint">• ${kp.point}</div>`).join('')}
-          </div>
-        `;
-      }
-      
-      header.innerHTML = `
-        <div class="echonav-outline-content">
-          <div class="echonav-outline-number">${index + 1}</div>
-          <div class="echonav-outline-title">${item.title}</div>
-          <div class="echonav-outline-toggle"></div>
+    // Add ARIA attributes for accessibility
+    const roundTitle = `Round ${index + 1}: ${item.title}`;
+    header.setAttribute('role', 'button');
+    header.setAttribute('aria-label', `${roundTitle}, ${isExpanded ? 'expanded' : 'collapsed'}, click to ${isExpanded ? 'collapse' : 'expand'}`);
+    header.setAttribute('aria-expanded', isExpanded.toString());
+    header.setAttribute('tabindex', '0');
+    
+    // Build keypoints HTML synchronously (no async storage calls)
+    let keypointsHtml = '';
+    
+    // Prioritize chatKeyPoints (from ChatGPT interface generation)
+    if (item.chatKeyPoints && item.chatKeyPoints.length > 0) {
+      console.log(`EchoNav: Using chatKeyPoints for outline header ${index}:`, item.chatKeyPoints);
+      keypointsHtml = `
+        <div class="echonav-outline-keypoints" role="list" aria-label="Key points summary">
+          ${item.chatKeyPoints.map(kp => `<div class="echonav-keypoint" role="listitem">• ${kp}</div>`).join('')}
         </div>
-        ${keypointsHtml}
       `;
-    });
+    } else if (item.parsedKeyPoints && item.parsedKeyPoints.length > 0) {
+      // Fallback to parsedKeyPoints (structured keypoints from outline generation)
+      console.log(`EchoNav: Using parsedKeyPoints for outline header ${index}:`, item.parsedKeyPoints);
+      keypointsHtml = `
+        <div class="echonav-outline-keypoints" role="list" aria-label="Key points">
+          ${item.parsedKeyPoints.map(kp => `<div class="echonav-keypoint" role="listitem">• ${kp.point}</div>`).join('')}
+        </div>
+      `;
+    }
+    
+    // Set HTML content synchronously
+    header.innerHTML = `
+      <div class="echonav-outline-content">
+        <div class="echonav-outline-number" aria-hidden="true">${index + 1}</div>
+        <div class="echonav-outline-title" id="echonav-round-title-${index}">${item.title}</div>
+        <div class="echonav-outline-toggle ${isExpanded ? 'expanded' : ''}" aria-hidden="true"></div>
+      </div>
+      ${keypointsHtml}
+    `;
     
     // Add click event listener
     header.addEventListener('click', () => {
       toggleConversationElement(index, header);
+    });
+    
+    // Add keyboard support for accessibility
+    header.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleConversationElement(index, header);
+      }
     });
     
     return header;
@@ -1499,6 +1944,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         header.classList.add('expanded');
         toggleIcon.classList.add('expanded');
+        
+        // Update ARIA attributes for expanded state
+        header.setAttribute('aria-expanded', 'true');
+        const currentLabel = header.getAttribute('aria-label');
+        if (currentLabel) {
+          header.setAttribute('aria-label', currentLabel.replace('collapsed', 'expanded').replace('expand', 'collapse'));
+        }
+        
         console.log(`EchoNav: Expanded turn ${index} with ${originalData.elements.length} elements`);
       } else {
         // Hide all elements in this turn
@@ -1507,9 +1960,87 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         header.classList.remove('expanded');
         toggleIcon.classList.remove('expanded');
+        
+        // Update ARIA attributes for collapsed state
+        header.setAttribute('aria-expanded', 'false');
+        const currentLabel = header.getAttribute('aria-label');
+        if (currentLabel) {
+          header.setAttribute('aria-label', currentLabel.replace('expanded', 'collapsed').replace('collapse', 'expand'));
+        }
+        
         console.log(`EchoNav: Collapsed turn ${index} with ${originalData.elements.length} elements`);
       }
     }
+  }
+  
+  // Helper function to collapse all turns in outline view
+  function collapseAllTurns() {
+    if (!isOutlineViewActive) {
+      console.log("EchoNav: Outline view not active, cannot collapse turns");
+      return;
+    }
+    
+    console.log("EchoNav: Collapsing all turns");
+    originalConversationElements.forEach((originalData, index) => {
+      const header = outlineHeaders.get(index);
+      const toggleIcon = header ? header.querySelector('.echonav-outline-toggle') : null;
+      
+      if (originalData && originalData.elements && originalData.originalDisplays) {
+        // Hide all elements in this turn
+        originalData.elements.forEach((element, i) => {
+          element.style.display = 'none';
+        });
+        
+        if (header) {
+          header.classList.remove('expanded');
+          // Update ARIA attributes for collapsed state
+          header.setAttribute('aria-expanded', 'false');
+          const currentLabel = header.getAttribute('aria-label');
+          if (currentLabel) {
+            header.setAttribute('aria-label', currentLabel.replace('expanded', 'collapsed').replace('collapse', 'expand'));
+          }
+        }
+        if (toggleIcon) {
+          toggleIcon.classList.remove('expanded');
+        }
+      }
+    });
+    console.log("EchoNav: All turns collapsed");
+  }
+  
+  // Helper function to expand all turns in outline view
+  function expandAllTurns() {
+    if (!isOutlineViewActive) {
+      console.log("EchoNav: Outline view not active, cannot expand turns");
+      return;
+    }
+    
+    console.log("EchoNav: Expanding all turns");
+    originalConversationElements.forEach((originalData, index) => {
+      const header = outlineHeaders.get(index);
+      const toggleIcon = header ? header.querySelector('.echonav-outline-toggle') : null;
+      
+      if (originalData && originalData.elements && originalData.originalDisplays) {
+        // Show all elements in this turn
+        originalData.elements.forEach((element, i) => {
+          element.style.display = originalData.originalDisplays[i];
+        });
+        
+        if (header) {
+          header.classList.add('expanded');
+          // Update ARIA attributes for expanded state
+          header.setAttribute('aria-expanded', 'true');
+          const currentLabel = header.getAttribute('aria-label');
+          if (currentLabel) {
+            header.setAttribute('aria-label', currentLabel.replace('collapsed', 'expanded').replace('expand', 'collapse'));
+          }
+        }
+        if (toggleIcon) {
+          toggleIcon.classList.add('expanded');
+        }
+      }
+    });
+    console.log("EchoNav: All turns expanded");
   }
 
   function addOutlineViewStyles() {
@@ -1530,11 +2061,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         max-width: calc(100vw - 48px);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        outline: none;
       }
 
       .echonav-outline-header:hover {
         background: #f0f0f0;
         border-color: #d0d0d0;
+      }
+      
+      .echonav-outline-header:focus {
+        outline: 3px solid #2563eb;
+        outline-offset: 2px;
+        box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
       }
 
       .echonav-outline-header.expanded {
@@ -1691,7 +2229,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         }
                         
                         if (assistantElement) {
-                            console.log("EchoNav: New AI response detected, monitoring for completion");
+                            console.log("EchoNav: New AI response detected, allowing native 'ChatGPT is generating' announcement");
+                            
+                            // DO NOT disable aria-live immediately - let ChatGPT's native "ChatGPT is generating" play first
+                            // We'll interrupt when response is complete (in monitorResponseCompletion)
+                            
+                            // Monitor for completion - interruption will happen when response is done
                             let contentElement = assistantElement.querySelector('.prose, .markdown, div[dir="auto"]') || 
                                                assistantElement.querySelector('[class*="prose"], [class*="markdown"]') ||
                                                assistantElement.querySelector('div');
@@ -1741,16 +2284,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     responseElement.dataset.echonavMonitored = 'true';
-    console.log("EchoNav: Monitoring response element for completion");
+    console.log("EchoNav: 🎯 STARTED monitoring response element for completion");
+    console.log("EchoNav: Response element:", responseElement);
+    
+    // Ensure aria-live region is created BEFORE we need to announce
+    createAriaLiveRegion();
+    console.log("EchoNav: Aria-live region pre-created for immediate announcement");
     
     let completionCheckTimer = null;
     let lastTextLength = 0;
     let stableCount = 0;
+    let checkCount = 0;
     
     function checkCompletion() {
         try {
+            checkCount++;
             const currentText = responseElement.innerText || responseElement.textContent || '';
             const currentLength = currentText.length;
+            
+            if (checkCount % 10 === 0) {
+                console.log(`EchoNav: Completion check #${checkCount}, length: ${currentLength}, stable: ${stableCount}`);
+            }
             
             if (currentLength < 20) return;
             
@@ -1775,6 +2329,57 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 
                 if (stableCount >= minStableChecks && (hasCompletionIndicators || currentLength > 100)) {
                     console.log("EchoNav: ⚡ AI response complete detected, triggering IMMEDIATE interruption");
+                    console.log(`EchoNav: Detection details - stableCount: ${stableCount}, minStableChecks: ${minStableChecks}, hasIndicators: ${hasCompletionIndicators}, hasStreamingCursor: ${hasStreamingCursor}`);
+                    
+                    // IMMEDIATELY interrupt VoiceOver - disable AND CLEAR ALL potential ChatGPT aria-live regions
+                    const chatGPTAriaLive = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
+                    let disabledCount = 0;
+                    chatGPTAriaLive.forEach((el) => {
+                        if (el.id !== 'echonav-aria-live' && el.id !== 'echonav-aria-live-polite') {
+                            // Save original content and aria-live value for potential restoration
+                            if (!el.hasAttribute('data-echonav-original-aria-live')) {
+                                const originalAriaLive = el.getAttribute('aria-live');
+                                if (originalAriaLive) {
+                                    el.setAttribute('data-echonav-original-aria-live', originalAriaLive);
+                                }
+                                // Save original content
+                                if (el.textContent) {
+                                    el.setAttribute('data-echonav-original-content', el.textContent);
+                                }
+                            }
+                            // AGGRESSIVE interruption: disable AND clear content
+                            el.setAttribute('aria-live', 'off');
+                            el.setAttribute('aria-hidden', 'true');
+                            el.textContent = ''; // Clear content to stop VoiceOver from reading
+                            disabledCount++;
+                            console.log(`EchoNav: Disabled and cleared aria-live on element:`, el.className, el.getAttribute('role'));
+                        }
+                    });
+                    console.log(`EchoNav: ✅ Disabled and cleared ${disabledCount} ChatGPT aria-live regions after completion (found ${chatGPTAriaLive.length} total)`);
+                    
+                    // ALSO disable any role="status" elements that might announce
+                    const statusElements = document.querySelectorAll('[role="status"]');
+                    let statusDisabledCount = 0;
+                    statusElements.forEach((el) => {
+                        if (el.id !== 'echonav-aria-live' && el.id !== 'echonav-aria-live-polite' && !el.hasAttribute('data-echonav-disabled')) {
+                            if (el.textContent) {
+                                el.setAttribute('data-echonav-original-status-content', el.textContent);
+                            }
+                            el.setAttribute('aria-live', 'off');
+                            el.setAttribute('aria-hidden', 'true');
+                            el.textContent = ''; // Clear content
+                            el.setAttribute('data-echonav-disabled', 'true');
+                            statusDisabledCount++;
+                        }
+                    });
+                    if (statusDisabledCount > 0) {
+                        console.log(`EchoNav: ✅ Also disabled and cleared ${statusDisabledCount} role="status" elements`);
+                    }
+                    
+                    // Announce "EchoNav is summarizing" IMMEDIATELY after clearing ChatGPT's voice
+                    const statusAnnouncement = `EchoNav is summarizing`;
+                    announceToScreenReader(statusAnnouncement);
+                    console.log("EchoNav: ✅ Announced 'EchoNav is summarizing' via VoiceOver");
                     
                     if (completionCheckTimer) {
                         clearInterval(completionCheckTimer);
@@ -1825,37 +2430,100 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     
     if (wordCount < 200) {
         console.log("EchoNav: Response too short (<200 words), skipping VoiceOver optimization");
+        // Re-enable aria-live regions so VoiceOver can read the short response normally
+        const chatGPTAriaLive = document.querySelectorAll('[aria-live="off"]');
+        let reEnabledCount = 0;
+        chatGPTAriaLive.forEach((el) => {
+            if (el.id !== 'echonav-aria-live') {
+                const originalAriaLive = el.getAttribute('data-echonav-original-aria-live');
+                if (originalAriaLive) {
+                    el.setAttribute('aria-live', originalAriaLive);
+                    el.removeAttribute('aria-hidden');
+                    el.removeAttribute('data-echonav-original-aria-live');
+                    reEnabledCount++;
+                } else {
+                    // Fallback: restore to polite if no original value saved
+                    el.setAttribute('aria-live', 'polite');
+                    el.removeAttribute('aria-hidden');
+                    reEnabledCount++;
+                }
+            }
+        });
+        if (reEnabledCount > 0) {
+            console.log(`EchoNav: Re-enabled ${reEnabledCount} aria-live regions for short response`);
+        }
         return;
     }
     
     console.log("EchoNav: Response meets threshold (>=200 words), proceeding with VoiceOver optimization");
 
     try {
-        // Step 1: Disable ChatGPT's aria-live regions to prevent native VoiceOver
+        // Note: aria-live regions are already disabled and "EchoNav is summarizing" already announced
+        // in monitorResponseCompletion when response completion was detected
+        // Just ensure any newly created aria-live regions are also disabled
         const chatGPTAriaLive = document.querySelectorAll('[aria-live="polite"], [aria-live="assertive"]');
-        const originalAriaLiveValues = [];
-        chatGPTAriaLive.forEach((el, index) => {
+        let disabledCount = 0;
+        chatGPTAriaLive.forEach((el) => {
             if (el.id !== 'echonav-aria-live') {
-                originalAriaLiveValues[index] = el.getAttribute('aria-live');
-                el.setAttribute('aria-live', 'off');
-                el.setAttribute('aria-hidden', 'true');
+                const currentAriaLive = el.getAttribute('aria-live');
+                if (currentAriaLive !== 'off') {
+                    // Save original if not already saved
+                    if (!el.hasAttribute('data-echonav-original-aria-live')) {
+                        el.setAttribute('data-echonav-original-aria-live', currentAriaLive);
+                    }
+                    el.setAttribute('aria-live', 'off');
+                    el.setAttribute('aria-hidden', 'true');
+                    disabledCount++;
+                }
             }
         });
-        console.log(`EchoNav: ✅ Disabled ${chatGPTAriaLive.length} ChatGPT aria-live regions`);
+        if (disabledCount > 0) {
+            console.log(`EchoNav: ✅ Disabled ${disabledCount} additional ChatGPT aria-live regions`);
+        }
         
-        // Step 2: Announce status to user
-        const statusAnnouncement = `EchoNav is summarizing`;
-        announceToScreenReader(statusAnnouncement);
-        console.log("EchoNav: ✅ Announced status via VoiceOver");
+        // Get messageIndex before generating keypoints (needed for storage in background.js)
+        let messageContainer = responseElement;
+        while (messageContainer && messageContainer !== document.body) {
+            const hasMessageRole = messageContainer.hasAttribute('data-message-author-role');
+            if (hasMessageRole && messageContainer.getAttribute('data-message-author-role') === 'assistant') {
+                break;
+            }
+            messageContainer = messageContainer.parentElement;
+        }
+        
+        let messageIndex;
+        if (messageContainer && messageContainer !== document.body) {
+            messageIndex = messageContainer.getAttribute('data-echonav-message-index');
+            if (!messageIndex) {
+                // Count existing assistant messages to get a unique index
+                const allAssistantMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
+                const messageIndexNum = Array.from(allAssistantMessages).indexOf(messageContainer);
+                messageIndex = messageIndexNum >= 0 ? messageIndexNum.toString() : Date.now().toString();
+                messageContainer.setAttribute('data-echonav-message-index', messageIndex);
+            }
+        } else {
+            messageIndex = Date.now().toString();
+        }
+        
+        // Step 1: Get key points from Summarizer API (now stored in background.js)
+        let keyPoints;
+        try {
+            keyPoints = await generateKeyPointsFromAPI(responseText, messageIndex);
+            console.log("EchoNav: Generated key points from API (stored in background.js):", keyPoints);
+        } catch (error) {
+            console.error("EchoNav: Error generating keypoints, using fallback:", error);
+            keyPoints = generateKeyPointsFallback(responseText);
+        }
 
-        // Step 3: Get key points from Summarizer API
-        const keyPoints = await generateKeyPointsFromAPI(responseText);
-        console.log("EchoNav: Generated key points from API:", keyPoints);
+        // Ensure keyPoints is valid (use empty array as last resort)
+        if (!keyPoints || !Array.isArray(keyPoints) || keyPoints.length === 0) {
+            console.warn("EchoNav: No valid keypoints, using simple fallback");
+            keyPoints = ["Key point extraction unavailable"];
+        }
 
-        // Step 4: Insert visual keypoints in ChatGPT interface (with persistence)
-        insertVisualKeyPoints(responseElement, keyPoints);
+        // Step 2: Visual keypoints insertion removed (inline summary card removed from UI)
 
-        // Step 5: Store current response data for user options
+        // Step 3: Store current response data for user options
         currentResponseData = {
             responseElement: responseElement,
             responseText: responseText,
@@ -1863,27 +2531,55 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             keyPoints: keyPoints
         };
         
-        // Step 6: Set up keyboard handler for user options
-        setupResponseOptionsKeyHandler();
+        // Step 4: Set up keyboard handler for user options
+        try {
+            setupResponseOptionsKeyHandler();
+        } catch (error) {
+            console.error("EchoNav: Error setting up keyboard handler:", error);
+        }
 
-        // Step 7: Announce key points via VoiceOver (only if enabled)
+        // Step 5: Announce key points via VoiceOver (only if enabled)
         chrome.storage.local.get(['voiceOverOptimizationEnabled'], (result) => {
             if (result.voiceOverOptimizationEnabled !== false) {
                 const finalAnnouncement = createCompletionAnnouncement(wordCount, keyPoints);
                 console.log("EchoNav: Final announcement prepared:", finalAnnouncement);
+                console.log("EchoNav: DEBUG - keyPoints:", keyPoints);
+                console.log("EchoNav: DEBUG - wordCount:", wordCount);
                 
                 // Clear status and announce key points after a short delay
                 setTimeout(() => {
                     // Clear previous announcement
                     announceToScreenReader('');
+                    console.log("EchoNav: DEBUG - Cleared previous announcement");
                     
                     // Announce key points via our ARIA live region
+                    // Increased delay to ensure VoiceOver registers the clear before new announcement
                     setTimeout(() => {
+                        console.log("EchoNav: DEBUG - About to announce:", finalAnnouncement);
                         announceToScreenReader(finalAnnouncement);
                         console.log("EchoNav: ✅ Key points announced via VoiceOver");
-                        console.log("EchoNav: User can now press VO+R to read full answer or VO+T to navigate to timeline");
-                    }, 200);
+                        console.log("EchoNav: User can now press Command+Shift+Y to read full answer or Command+Shift+E to navigate to outline");
+                        
+                        // Step 5.5: Insert outline header AFTER announcement (to avoid interfering with VoiceOver)
+                        setTimeout(() => {
+                            try {
+                                insertImmediateOutlineHeader(responseElement, responseText, keyPoints, messageIndex);
+                            } catch (error) {
+                                console.error("EchoNav: Error inserting immediate outline header:", error);
+                            }
+                        }, 1000); // Wait 1 second after announcement to ensure it completes
+                    }, 500);
                 }, 800);
+            } else {
+                console.log("EchoNav: DEBUG - VoiceOver optimization is DISABLED");
+                // If VoiceOver is disabled, still insert outline header but with minimal delay
+                setTimeout(() => {
+                    try {
+                        insertImmediateOutlineHeader(responseElement, responseText, keyPoints, messageIndex);
+                    } catch (error) {
+                        console.error("EchoNav: Error inserting immediate outline header:", error);
+                    }
+                }, 500);
             }
         });
         
@@ -1905,7 +2601,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     // Add options prompt after keypoints
-    announcement += `Press VO+R to read the full answer, or press VO+T to navigate to timeline view for this turn. `;
+    announcement += `Press Command+Shift+Y to read the full answer, or press Command+Shift+E to navigate to outline view. `;
     
     return announcement;
   }
@@ -1915,15 +2611,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return englishNumbers[num - 1] || `${num}th`;
   }
 
-  async function generateKeyPointsFromAPI(text) {
-    console.log("EchoNav: Calling SummarizerAPI for key points generation");
+  async function generateKeyPointsFromAPI(text, messageIndex) {
+    console.log("EchoNav: Calling background.js to generate and store key points");
+    
+    const conversationId = getConversationId();
+    if (!conversationId) {
+        console.warn("EchoNav: No conversation ID, using fallback");
+        return generateKeyPointsFallback(text);
+    }
     
     try {
         const response = await new Promise((resolve, reject) => {
             chrome.runtime.sendMessage({
-                action: "callSummarizerAPI",
+                action: "generateAndStoreKeyPoints",
                 text: text,
-                requestType: "keypoints"
+                conversationId: conversationId,
+                messageIndex: messageIndex
             }, (response) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
@@ -1934,15 +2637,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         });
         
         if (response && response.success && response.keyPoints) {
-            console.log("EchoNav: Successfully received key points from SummarizerAPI:", response.keyPoints);
+            console.log("EchoNav: Successfully received key points from background.js (already stored):", response.keyPoints);
             return response.keyPoints.slice(0, 3); // Ensure max 3 points
+        } else if (response && response.useFallback) {
+            console.warn("EchoNav: Background.js suggested fallback, using fallback");
+            return generateKeyPointsFallback(text);
         } else {
-            console.warn("EchoNav: SummarizerAPI returned no key points, using fallback");
+            console.warn("EchoNav: No key points returned, using fallback");
             return generateKeyPointsFallback(text);
         }
         
     } catch (error) {
-        console.error("EchoNav: Error calling SummarizerAPI:", error);
+        console.error("EchoNav: Error calling background.js for keypoints:", error);
         return generateKeyPointsFallback(text);
     }
   }
@@ -1974,247 +2680,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // ===== VISUAL KEYPOINTS INSERTION WITH PERSISTENCE =====
   
-  function insertVisualKeyPoints(responseElement, keyPoints) {
-    console.log("EchoNav: Inserting visual keypoints in ChatGPT interface");
-    
-    if (!keyPoints || keyPoints.length === 0) {
-        console.warn("EchoNav: No keypoints to insert");
-        return;
-    }
-    
-    // Ensure we have exactly 3 keypoints
-    const displayKeyPoints = keyPoints.slice(0, 3);
-    
-    // Find the message container for persistence
-    let messageContainer = responseElement;
-    while (messageContainer && messageContainer !== document.body) {
-        const hasMessageRole = messageContainer.hasAttribute('data-message-author-role');
-        if (hasMessageRole && messageContainer.getAttribute('data-message-author-role') === 'assistant') {
-            break;
-        }
-        messageContainer = messageContainer.parentElement;
-    }
-    
-    if (!messageContainer || messageContainer === document.body) {
-        console.warn("EchoNav: Could not find message container for persistence");
-        messageContainer = responseElement.parentElement;
-    }
-    
-    // Check if keypoints already exist for this response (prevent duplicates)
-    const existingKeyPoints = messageContainer.nextElementSibling?.classList.contains('echonav-inline-keypoints');
-    if (existingKeyPoints) {
-        console.log("EchoNav: Keypoints already exist for this response, skipping insertion");
-        return;
-    }
-    
-    // Store keypoints in message container for persistence
-    messageContainer.setAttribute('data-echonav-has-keypoints', 'true');
-    messageContainer.setAttribute('data-echonav-keypoints', JSON.stringify(displayKeyPoints));
-    
-    // Create and insert keypoints UI
-    createKeyPointsUI(messageContainer, displayKeyPoints);
+  // Helper function to get conversation ID from URL
+  function getConversationId() {
+    const url = window.location.href;
+    // ChatGPT URL format: https://chatgpt.com/c/[conversation-id]
+    const match = url.match(/\/c\/([a-f0-9-]+)/);
+    return match ? match[1] : null;
   }
   
-  function createKeyPointsUI(messageContainer, keyPoints) {
-    // Create keypoints container (matching fullscreen mode style, but wider)
-    const keyPointsContainer = document.createElement('div');
-    keyPointsContainer.className = 'echonav-inline-keypoints';
-    keyPointsContainer.setAttribute('role', 'complementary');
-    keyPointsContainer.setAttribute('aria-label', 'EchoNav Key Points Summary');
-    
-    // Add header
-    const header = document.createElement('div');
-    header.className = 'echonav-inline-keypoints-header';
-    header.innerHTML = '<span class="echonav-logo">🔷</span><span class="echonav-header-text">EchoNav Summary</span>';
-    keyPointsContainer.appendChild(header);
-    
-    // Add each keypoint
-    keyPoints.forEach((keyPoint, index) => {
-        const keyPointDiv = document.createElement('div');
-        keyPointDiv.className = 'echonav-inline-keypoint';
-        keyPointDiv.setAttribute('role', 'listitem');
-        
-        // Add bullet point marker
-        const bullet = document.createElement('span');
-        bullet.className = 'echonav-keypoint-bullet';
-        bullet.textContent = '•';
-        bullet.setAttribute('aria-hidden', 'true');
-        
-        // Add keypoint text
-        const text = document.createElement('span');
-        text.className = 'echonav-keypoint-text';
-        text.textContent = keyPoint;
-        
-        keyPointDiv.appendChild(bullet);
-        keyPointDiv.appendChild(text);
-        keyPointsContainer.appendChild(keyPointDiv);
-        
-        console.log(`EchoNav: Added visual keypoint ${index + 1}: "${keyPoint}"`);
-    });
-    
-    // Insert after the message container
-    if (messageContainer && messageContainer.parentElement) {
-        messageContainer.parentElement.insertBefore(keyPointsContainer, messageContainer.nextSibling);
-        console.log("EchoNav: ✅ Visual keypoints inserted successfully");
-        
-        // Add styles if not already added
-        addInlineKeyPointsStyles();
-    }
-  }
+  // Storage helper functions removed - no longer needed without inline keypoints UI
   
-  function addInlineKeyPointsStyles() {
-    // Check if styles already exist
-    if (document.getElementById('echonav-inline-keypoints-styles')) {
-        return;
-    }
-    
-    const styles = document.createElement('style');
-    styles.id = 'echonav-inline-keypoints-styles';
-    styles.textContent = `
-        /* EchoNav Inline KeyPoints Styles - Full Width */
-        .echonav-inline-keypoints {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 12px;
-            padding: 20px 24px;
-            margin: 20px 0;
-            width: 100%;
-            max-width: 100%;
-            box-sizing: border-box;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        
-        .echonav-inline-keypoints-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 16px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        
-        .echonav-logo {
-            font-size: 20px;
-            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
-        }
-        
-        .echonav-header-text {
-            font-size: 15px;
-            font-weight: 600;
-            color: white;
-            letter-spacing: 0.5px;
-        }
-        
-        .echonav-inline-keypoint {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            margin: 12px 0;
-            padding-left: 4px;
-        }
-        
-        .echonav-keypoint-bullet {
-            color: white;
-            font-size: 20px;
-            font-weight: bold;
-            line-height: 1.5;
-            flex-shrink: 0;
-            margin-top: -2px;
-        }
-        
-        .echonav-keypoint-text {
-            color: white;
-            font-size: 15px;
-            line-height: 1.6;
-            flex: 1;
-        }
-        
-        /* Hide when in fullscreen mode */
-        body.echonav-fullscreen-active .echonav-inline-keypoints {
-            display: none;
-        }
-        
-        /* Dark mode support */
-        @media (prefers-color-scheme: dark) {
-            .echonav-inline-keypoints {
-                background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-                box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
-            }
-        }
-        
-        /* Responsive adjustments */
-        @media (max-width: 768px) {
-            .echonav-inline-keypoints {
-                padding: 16px 18px;
-                margin: 16px 0;
-            }
-            
-            .echonav-inline-keypoint {
-                gap: 10px;
-            }
-        }
-    `;
-    
-    document.head.appendChild(styles);
-    console.log("EchoNav: ✅ Inline keypoints styles added");
-  }
-  
-  // Restore keypoints on page load (for persistence after switching conversations)
-  function restoreInlineKeyPoints() {
-    console.log("EchoNav: 🔄 Restoring inline keypoints from DOM persistence");
-    
-    // Find all assistant messages that have keypoints data but no visual UI
-    const messagesWithKeyPoints = document.querySelectorAll('[data-echonav-has-keypoints="true"]');
-    console.log(`EchoNav: Found ${messagesWithKeyPoints.length} messages with stored keypoints data`);
-    
-    if (messagesWithKeyPoints.length === 0) {
-        console.log("EchoNav: No messages with keypoints data found");
-        return;
-    }
-    
-    let restoredCount = 0;
-    let alreadyExistsCount = 0;
-    
-    messagesWithKeyPoints.forEach((messageContainer, index) => {
-        // Check if keypoints UI already exists
-        const nextElement = messageContainer.nextElementSibling;
-        if (nextElement && nextElement.classList.contains('echonav-inline-keypoints')) {
-            console.log(`EchoNav: Message ${index + 1}: Keypoints UI already exists ✓`);
-            alreadyExistsCount++;
-            return;
-        }
-        
-        try {
-            const keyPointsData = messageContainer.getAttribute('data-echonav-keypoints');
-            if (keyPointsData) {
-                const keyPoints = JSON.parse(keyPointsData);
-                console.log(`EchoNav: Message ${index + 1}: Restoring ${keyPoints.length} keypoints...`);
-                createKeyPointsUI(messageContainer, keyPoints);
-                restoredCount++;
-                console.log(`EchoNav: Message ${index + 1}: ✅ Restored successfully`);
-            } else {
-                console.warn(`EchoNav: Message ${index + 1}: Has marker but no keypoints data`);
-            }
-        } catch (error) {
-            console.error(`EchoNav: Message ${index + 1}: Error restoring keypoints:`, error);
-        }
-    });
-    
-    console.log(`EchoNav: 📊 Restoration summary: ${restoredCount} restored, ${alreadyExistsCount} already existed, ${messagesWithKeyPoints.length} total`);
-  }
+  // ===== INLINE VISUAL KEYPOINTS FUNCTIONS REMOVED =====
+  // The inline summary card (purple gradient with 3 keypoints) has been removed from the UI.
+  // KeyPoints generation and storage are preserved for use in timeline cards.
 
   // ===== POST-KEYPOINTS USER OPTIONS =====
   
   function setupResponseOptionsKeyHandler() {
+    console.log("EchoNav: DEBUG - setupResponseOptionsKeyHandler called");
+    console.log("EchoNav: DEBUG - currentResponseData:", currentResponseData ? "exists" : "null");
+    
     // Remove existing handler if any
     if (responseOptionsKeyHandler) {
         document.removeEventListener('keydown', responseOptionsKeyHandler);
+        console.log("EchoNav: DEBUG - Removed previous keyboard handler");
     }
     
     // Create new handler with VoiceOver-compatible shortcuts
     responseOptionsKeyHandler = (event) => {
         // Only handle if we have current response data
-        if (!currentResponseData) return;
+        if (!currentResponseData) {
+            // Don't log for every keypress, too noisy
+            return;
+        }
         
         // Improved input detection - ignore if user is typing in any editable element
         const target = event.target;
@@ -2231,27 +2729,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const isVoiceOverModifier = event.ctrlKey && event.altKey;
         const key = event.key.toLowerCase();
         
-        if (isVoiceOverModifier && key === 'r') {
-            // VO+R: Read full answer
-            event.preventDefault();
-            event.stopPropagation();
-            console.log("EchoNav: User pressed VO+R - reading full answer");
-            readFullAnswer();
-        } else if (isVoiceOverModifier && key === 't') {
-            // VO+T: Navigate to timeline view
-            event.preventDefault();
-            event.stopPropagation();
-            console.log("EchoNav: User pressed VO+T - navigating to timeline view");
-            navigateToTimelineView();
-        }
+        // This handler is now DEPRECATED - we use Chrome commands API instead
+        // Keeping it here for backward compatibility during transition
+        // The actual shortcuts are now Command+Shift+Y and Command+Shift+E
+        // which are registered in manifest.json and handled by background.js
     };
     
     // Add listener
     document.addEventListener('keydown', responseOptionsKeyHandler);
-    console.log("EchoNav: Keyboard handler set up for response options (VO+R/VO+T)");
+    console.log("EchoNav: ✅ Keyboard handler set up for response options (Command+Shift+Y/E)");
   }
   
-  function readFullAnswer() {
+  function readFullAnswerArticle() {
+    console.log("EchoNav: readFullAnswerArticle called");
+    
     if (!currentResponseData) {
         console.warn("EchoNav: No current response data available");
         announceToScreenReader("No response available to read");
@@ -2259,55 +2750,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     const { responseText, responseElement } = currentResponseData;
+    console.log("EchoNav: Response element:", responseElement);
     
-    // Announce that we're reading the full answer
-    announceToScreenReader("Reading full answer. Press Escape to stop.");
-    
-    // Focus on the response element for VoiceOver to read
+    // Find the article element that contains this response
+    // According to ChatGPT structure: <article data-testid="conversation-turn-X" data-turn="assistant">
+    let articleElement = null;
     if (responseElement) {
-        // Make element focusable if not already
-        if (!responseElement.hasAttribute('tabindex')) {
-            responseElement.setAttribute('tabindex', '-1');
+        // Try to find the closest article element
+        articleElement = responseElement.closest('article[data-testid*="conversation-turn"]');
+        
+        // If not found, try alternative selectors
+        if (!articleElement) {
+            articleElement = responseElement.closest('article[data-turn="assistant"]');
         }
         
-        // Add aria-label for better screen reader support
-        responseElement.setAttribute('aria-label', `Full ChatGPT response: ${responseText.substring(0, 100)}...`);
-        
-        // Small delay before focusing to let announcement complete
-        setTimeout(() => {
-            responseElement.focus();
-            console.log("EchoNav: Focused on response element for VoiceOver to read");
-            
-            // Optional: Use Web Speech API as a backup for reading
-            // This gives users TTS control even if VoiceOver reading doesn't work as expected
-            setTimeout(() => {
-                const utterance = new SpeechSynthesisUtterance(responseText);
-                utterance.rate = 0.9; // Slightly slower for comprehension
-                utterance.lang = 'en-US';
-                
-                utterance.onstart = () => {
-                    console.log("EchoNav: Started reading full answer via TTS");
-                };
-                
-                utterance.onend = () => {
-                    console.log("EchoNav: Finished reading full answer");
-                    announceToScreenReader("Finished reading full answer. Press VO+R to read again, or VO+T to navigate to timeline.");
-                };
-                
-                utterance.onerror = (error) => {
-                    console.error("EchoNav: TTS error:", error);
-                };
-                
-                // Optional: Only use TTS if explicitly requested
-                // For now, relying on VoiceOver focus is the primary method
-                // speechSynthesis.speak(utterance);
-                
-            }, 1000);
-        }, 500);
+        // Fallback: use the responseElement itself
+        if (!articleElement) {
+            console.warn("EchoNav: Could not find article element, using responseElement as fallback");
+            articleElement = responseElement;
+        }
     }
+    
+    if (!articleElement) {
+        console.warn("EchoNav: No article element found to read");
+        announceToScreenReader("No content available to read");
+        return;
+    }
+    
+    console.log("EchoNav: Found article element:", articleElement.tagName, articleElement.getAttribute('data-testid'));
+    
+    // Announce that we're reading the full answer
+    announceToScreenReader("Reading full ChatGPT answer");
+    
+    // Make article focusable if not already (KEY: tabindex="-1")
+    if (!articleElement.hasAttribute('tabindex')) {
+        articleElement.setAttribute('tabindex', '-1');
+    }
+    
+    // Get full text content for better aria-label
+    const fullText = articleElement.textContent || responseText;
+    const preview = fullText.substring(0, 150).trim();
+    articleElement.setAttribute('aria-label', `ChatGPT response: ${preview}...`);
+    
+    // Small delay before focusing to let announcement complete
+    setTimeout(() => {
+        // Initial focus
+        articleElement.focus();
+        console.log("EchoNav: Initial focus on article element");
+        
+        // CRITICAL FOR VOICEOVER: Repeat focus multiple times to ensure VoiceOver picks it up
+        let focusCount = 0;
+        const focusInterval = setInterval(() => {
+            articleElement.focus();
+            focusCount++;
+            console.log(`EchoNav: Repeated focus attempt ${focusCount}`);
+            
+            if (focusCount >= 5) {
+                clearInterval(focusInterval);
+                console.log("EchoNav: ✅ Article focused, VoiceOver should now read it");
+            }
+        }, 10); // Repeat every 10ms for 50ms total
+        
+    }, 100); // Shorter delay for better responsiveness
   }
   
-  function navigateToTimelineView() {
+  function navigateToOutlineView() {
     if (!currentResponseData) {
         console.warn("EchoNav: No current response data available");
         announceToScreenReader("No response available to navigate");
@@ -2315,130 +2822,151 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     // Announce navigation intent
-    announceToScreenReader("Opening Timeline View. You can navigate the conversation structure using arrow keys.");
+    announceToScreenReader("Opening Conversation Outline. Navigate to the EchoNav sidepanel to explore the outline.");
     
-    // Strategy: Open/show the sidepanel iframe and trigger outline generation if needed
+    // Strategy: Open Chrome sidepanel with EchoNav outline
     setTimeout(() => {
-        // Option 1: If iframe exists, show it and send message to focus on latest turn
-        if (treeUIIframe) {
-            // Show iframe if hidden
-            if (treeUIIframe.style.display === 'none') {
-                treeUIIframe.style.display = 'block';
+        // Send message to background script to open sidepanel
+        chrome.runtime.sendMessage({
+            action: "openSidePanel"
+        }, (response) => {
+            if (chrome.runtime.lastError) {
+                console.error("EchoNav: Error opening sidepanel:", chrome.runtime.lastError.message);
+                announceToScreenReader("Could not open outline view. Please click the EchoNav icon in the toolbar.");
+            } else {
+                console.log("EchoNav: Sidepanel open request sent");
                 
-                // Adjust main container margin
-                const mainContainer = document.querySelector('main')?.parentElement;
-                if (mainContainer) {
-                    mainContainer.style.marginRight = '380px';
-                }
+                // After sidepanel opens, send message to focus on outline landmark
+                setTimeout(() => {
+                    chrome.runtime.sendMessage({
+                        action: "focusOutlineLandmark"
+                    }, (focusResponse) => {
+                        if (chrome.runtime.lastError) {
+                            console.warn("EchoNav: Could not send focus message:", chrome.runtime.lastError.message);
+                        }
+                    });
+                }, 1000);
+                
+                // Announce completion
+                setTimeout(() => {
+                    announceToScreenReader("Outline view opened. Use VoiceOver to navigate to the EchoNav landmark, conversation outline region. Then use arrow keys to explore conversation structure.");
+                }, 1500);
             }
-            
-            // Send message to iframe to focus on the latest timeline item
-            try {
-                treeUIIframe.contentWindow.postMessage({
-                    action: 'focusLatestTimelineItem'
-                }, '*');
-                console.log("EchoNav: Sent message to iframe to focus latest timeline item");
-            } catch (error) {
-                console.error("EchoNav: Error sending message to iframe:", error);
-            }
-            
-        } else {
-            // Option 2: Create iframe if it doesn't exist
-            console.log("EchoNav: Creating iframe for timeline navigation");
-            toggleEchoNavUI();
-            
-            // Wait for iframe to load, then send focus message
-            setTimeout(() => {
-                if (treeUIIframe && treeUIIframe.contentWindow) {
-                    try {
-                        treeUIIframe.contentWindow.postMessage({
-                            action: 'focusLatestTimelineItem'
-                        }, '*');
-                    } catch (error) {
-                        console.error("EchoNav: Error sending message to iframe:", error);
-                    }
-                }
-            }, 1000);
-        }
-        
-        // Announce completion
-        setTimeout(() => {
-            announceToScreenReader("Timeline View opened. Use Tab to navigate to the panel, then use arrow keys to explore conversation turns.");
-        }, 1500);
-        
+        });
     }, 500);
   }
 
   // Start monitoring when content script loads
-  // Note: Monitoring runs always to insert visual keypoints, not just for VoiceOver
   setTimeout(() => {
-    console.log("EchoNav: Starting response monitoring for visual keypoints and VoiceOver optimization");
+    console.log("EchoNav: Starting response monitoring for VoiceOver optimization");
     startResponseMonitoring();
+  }, 2000); // 2 second delay to avoid conflicts with page load
+
+  // Function to immediately insert outline header when AI response completes
+  function insertImmediateOutlineHeader(responseElement, responseText, keyPoints, messageIndex) {
+    console.log("EchoNav: Inserting immediate outline header after AI response completion");
     
-    // Restore keypoints on page load
-    restoreInlineKeyPoints();
-    
-    // Set up MutationObserver to restore keypoints when navigating between conversations
-    const conversationObserver = new MutationObserver((mutations) => {
-        // Check for any DOM changes that might indicate conversation switch
-        mutations.forEach(mutation => {
-            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                mutation.addedNodes.forEach(node => {
-                    // Check if new assistant messages were added
-                    if (node.nodeType === Node.ELEMENT_NODE) {
-                        const hasKeypoints = node.hasAttribute && node.hasAttribute('data-echonav-has-keypoints');
-                        const containsKeypoints = node.querySelector && node.querySelector('[data-echonav-has-keypoints]');
-                        
-                        if (hasKeypoints || containsKeypoints) {
-                            console.log("EchoNav: Detected messages with keypoints data via MutationObserver");
-                            setTimeout(() => restoreInlineKeyPoints(), 300);
-                        }
-                    }
-                });
-            }
-        });
-    });
-    
-    // Observe the main content area for changes
-    const mainContent = document.querySelector('main') || document.body;
-    conversationObserver.observe(mainContent, {
-        childList: true,
-        subtree: true
-    });
-    
-    console.log("EchoNav: ✅ Keypoints restoration observer initialized");
-    
-    // Set up periodic check as fallback (every 3 seconds)
-    let lastUrl = window.location.href;
-    setInterval(() => {
-        const currentUrl = window.location.href;
+    try {
+        // Find the user message that corresponds to this AI response
+        const allMessageElements = Array.from(findMessageElements());
+        const assistantIndex = allMessageElements.findIndex(el => el.contains(responseElement));
         
-        // Check if URL changed (conversation switched)
-        if (currentUrl !== lastUrl) {
-            console.log("EchoNav: URL changed, restoring keypoints");
-            lastUrl = currentUrl;
-            setTimeout(() => restoreInlineKeyPoints(), 500);
-        } else {
-            // Even if URL didn't change, check for missing keypoints UI
-            const messagesWithData = document.querySelectorAll('[data-echonav-has-keypoints="true"]');
-            if (messagesWithData.length > 0) {
-                // Check if any are missing UI
-                let needsRestore = false;
-                messagesWithData.forEach(msg => {
-                    const nextElement = msg.nextElementSibling;
-                    if (!nextElement || !nextElement.classList.contains('echonav-inline-keypoints')) {
-                        needsRestore = true;
-                    }
-                });
-                
-                if (needsRestore) {
-                    console.log("EchoNav: Periodic check detected missing keypoints UI, restoring");
-                    restoreInlineKeyPoints();
-                }
+        if (assistantIndex <= 0) {
+            console.warn("EchoNav: Could not find assistant message position for immediate outline header");
+            return;
+        }
+        
+        // Find the user message (should be before the assistant)
+        let userElement = null;
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+            const el = allMessageElements[i];
+            if (el.getAttribute('data-message-author-role') === 'user' ||
+                el.querySelector('[data-message-author-role="user"]')) {
+                userElement = el;
+                break;
             }
         }
-    }, 3000); // Check every 3 seconds
+        
+        if (!userElement) {
+            console.warn("EchoNav: Could not find user message for immediate outline header");
+            return;
+        }
+        
+        const userText = userElement.innerText || userElement.textContent || '';
+        console.log("EchoNav: Found user message for immediate outline header:", userText.substring(0, 100));
+        
+        // Generate a temporary title from the user's question (first line, truncated)
+        const tempTitle = userText.split('\n')[0].substring(0, 60) + (userText.length > 60 ? '...' : '');
+        
+        // Create a temporary item for the outline header
+        const tempItem = {
+            title: tempTitle,
+            originalText: userText,
+            assistantText: responseText,
+            chatKeyPoints: keyPoints,
+            assistantUniqueId: messageIndex,
+            isTemporary: true // Mark as temporary so it can be updated later with proper title
+        };
+        
+        console.log(`EchoNav: Creating immediate outline header with temp title: "${tempTitle}"`);
+        
+        // Find the containers to work with
+        const userContainer = findTurnContainer(userElement);
+        const assistantContainer = findTurnContainer(responseElement);
+        
+        if (!userContainer || !assistantContainer) {
+            console.warn("EchoNav: Could not find containers for immediate outline header");
+            return;
+        }
+        
+        // Check if an outline header already exists for this turn
+        const existingHeader = userContainer.previousElementSibling;
+        if (existingHeader && existingHeader.classList.contains('echonav-outline-header')) {
+            console.log("EchoNav: Outline header already exists, skipping immediate insertion");
+            return;
+        }
+        
+        // Create and insert the outline header immediately
+        const outlineHeader = createOutlineHeader(tempItem, parseInt(messageIndex), true); // expanded by default
+        
+        // Insert before the user container
+        if (userContainer.parentNode) {
+            userContainer.parentNode.insertBefore(outlineHeader, userContainer);
+            console.log("EchoNav: ✅ Immediate outline header inserted successfully");
+            
+            // Store reference for potential later updates
+            outlineHeader.setAttribute('data-echonav-temp-header', 'true');
+            outlineHeader.setAttribute('data-echonav-message-index', messageIndex);
+            
+            // Scroll to the new header (optional, may be distracting)
+            // setTimeout(() => {
+            //     outlineHeader.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            // }, 100);
+        }
+        
+    } catch (error) {
+        console.error("EchoNav: Error inserting immediate outline header:", error);
+    }
+  }
+  
+  // Helper function to find the turn container for a message element
+  function findTurnContainer(messageElement) {
+    let container = messageElement;
     
-    console.log("EchoNav: ✅ Periodic restoration check initialized (every 3s)");
-  }, 2000); // 2 second delay to avoid conflicts with page load
+    // Look for common conversation turn containers
+    while (container && container !== document.body) {
+        const classList = container.classList;
+        if (classList.contains('agent-turn') || 
+            classList.contains('user-turn') ||
+            classList.contains('conversation-turn') ||
+            container.hasAttribute('data-testid') ||
+            (classList.contains('group') && classList.contains('turn-messages'))) {
+            return container;
+        }
+        container = container.parentElement;
+    }
+    
+    // If no specific container found, use the message element itself
+    return messageElement.parentElement || messageElement;
+  }
 

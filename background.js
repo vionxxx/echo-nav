@@ -1079,6 +1079,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
                     console.log("EchoNav: Summarizer ready, starting to process turns...");
                     
+                    // Extract conversationId from URL to load chat keypoints
+                    const conversationId = tab.url.match(/\/c\/([a-f0-9-]+)/)?.[1];
+                    let chatKeyPointsStorage = {};
+                    
+                    if (conversationId) {
+                        const keypointsStorageKey = `echonav_keypoints_${conversationId}`;
+                        const keypointsResult = await chrome.storage.local.get([keypointsStorageKey]);
+                        chatKeyPointsStorage = keypointsResult[keypointsStorageKey] || {};
+                        console.log(`EchoNav: Loaded chat keypoints for conversation ${conversationId}:`, chatKeyPointsStorage);
+                    } else {
+                        console.warn("EchoNav: Could not extract conversation ID from URL:", tab.url);
+                    }
+                    
                     const outlineItems = [];
                     
                     // Send initial message to start streaming
@@ -1277,6 +1290,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                 contextUsed: recentTitles.slice(-maxContextTitles - 1, -1)
                             });
                             
+                            // Get chat keypoints for this message index (from ChatGPT interface generation)
+                            const chatKeyPoints = chatKeyPointsStorage[i.toString()] || null;
+                            if (chatKeyPoints) {
+                                console.log(`EchoNav: Found chat keypoints for message ${i}:`, chatKeyPoints);
+                            } else {
+                                console.log(`EchoNav: No chat keypoints found for message ${i}`);
+                            }
+                            
                             // Create the item with structured data
                             const item = { 
                                 title: cleanTitle, 
@@ -1290,7 +1311,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                 keyPoints: structuredData.type === 'key_points' ? 
                                     structuredData.keyPoints.map(kp => kp.point).join('\n• ') : 
                                     'See structured outline',
-                                parsedKeyPoints: structuredData.type === 'key_points' ? structuredData.keyPoints : []
+                                parsedKeyPoints: structuredData.type === 'key_points' ? structuredData.keyPoints : [],
+                                // NEW: Add chat keypoints (from ChatGPT interface generation)
+                                chatKeyPoints: chatKeyPoints
                             };
                             outlineItems.push(item);
                             
@@ -1320,6 +1343,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             const fallbackKeyPoints = "• Key points unavailable";
                             recentTitles.push(fallbackTitle);
                             
+                            // Try to get chat keypoints even for fallback cases
+                            const chatKeyPoints = chatKeyPointsStorage[i.toString()] || null;
+                            
                             const item = { 
                                 title: fallbackTitle, 
                                 keyPoints: fallbackKeyPoints,
@@ -1328,7 +1354,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                 assistantText: turn.assistant,
                                 assistantUniqueId: turn.assistantUniqueId,
                                 responseStructure: turn.responseStructure || null,
-                                structuredData: { type: 'error', message: turnError.message }
+                                structuredData: { type: 'error', message: turnError.message },
+                                chatKeyPoints: chatKeyPoints
                             };
                             outlineItems.push(item);
                             
@@ -1385,8 +1412,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     if (cachedData) {
                         console.log("EchoNav: Found cached outline for URL:", currentTab.url);
                         console.log("EchoNav: Cached data structure:", cachedData);
-                        // Return the cached data in the expected format
-                        sendResponse({ data: cachedData });
+                        
+                        // Extract conversationId and load chat keypoints
+                        const conversationId = currentTab.url.match(/\/c\/([a-f0-9-]+)/)?.[1];
+                        if (conversationId && cachedData.items) {
+                            const keypointsStorageKey = `echonav_keypoints_${conversationId}`;
+                            const keypointsResult = await chrome.storage.local.get([keypointsStorageKey]);
+                            const chatKeyPointsStorage = keypointsResult[keypointsStorageKey] || {};
+                            console.log(`EchoNav: Loading chat keypoints for cached outline, conversation ${conversationId}:`, chatKeyPointsStorage);
+                            
+                            // Merge keypoints into items
+                            const updatedItems = cachedData.items.map((item, index) => {
+                                const chatKeyPoints = chatKeyPointsStorage[index.toString()] || null;
+                                if (chatKeyPoints && !item.chatKeyPoints) {
+                                    console.log(`EchoNav: Adding chat keypoints to cached item ${index}:`, chatKeyPoints);
+                                    return { ...item, chatKeyPoints };
+                                }
+                                return item;
+                            });
+                            
+                            // Return updated data with chatKeyPoints
+                            const updatedData = { ...cachedData, items: updatedItems };
+                            sendResponse({ data: updatedData });
+                        } else {
+                            // No conversationId or no items, return as is
+                            sendResponse({ data: cachedData });
+                        }
                     } else {
                         console.log("EchoNav: No cached outline found for URL:", currentTab.url);
                         sendResponse({ data: null });
@@ -1489,7 +1540,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     const pingResponse = await chrome.tabs.sendMessage(currentTab.id, { action: "ping" });
                     console.log("EchoNav: Content script is ready for update");
                 } catch (pingError) {
-                    throw new Error("Content script is not ready. Please refresh the page and try again.");
+                    // Content script temporarily unavailable - return pending status for retry
+                    console.log("EchoNav: Content script not ready for update, will retry");
+                    sendResponse({ error: null, data: null, pending: true, contentScriptNotReady: true, message: "Content script initializing, retrying..." });
+                    return;
                 }
 
                 // Get current conversation turns
@@ -1546,6 +1600,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     console.log("EchoNav: New summarizer created and cached");
                 }
                 
+                // Extract conversationId from URL to load chat keypoints
+                const conversationId = currentTab.url.match(/\/c\/([a-f0-9-]+)/)?.[1];
+                let chatKeyPointsStorage = {};
+                
+                if (conversationId) {
+                    const keypointsStorageKey = `echonav_keypoints_${conversationId}`;
+                    const keypointsResult = await chrome.storage.local.get([keypointsStorageKey]);
+                    chatKeyPointsStorage = keypointsResult[keypointsStorageKey] || {};
+                    console.log(`EchoNav: Loaded chat keypoints for conversation ${conversationId}:`, chatKeyPointsStorage);
+                } else {
+                    console.warn("EchoNav: Could not extract conversation ID from URL:", currentTab.url);
+                }
+                
                 // Summarize only the complete new turns and generate key points for each
                 const newOutlineItems = [];
                 const newKeyPoints = [];
@@ -1553,6 +1620,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 for (let i = 0; i < turnsToProcess.length; i++) {
                     const turn = turnsToProcess[i];
                     const turnText = `User: ${turn.user}\nAssistant: ${turn.assistant}`;
+                    const messageIndex = cachedTurnCount + i; // Calculate the global message index
                     
                     // Generate turn title (smart title selection based on structure type)
                     let cleanTitle;
@@ -1639,6 +1707,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         responseOutline = matchedKeyPoints;
                     }
                     
+                    // Get chat keypoints for this message index (from ChatGPT interface generation)
+                    const chatKeyPoints = chatKeyPointsStorage[messageIndex.toString()] || null;
+                    if (chatKeyPoints) {
+                        console.log(`EchoNav: Found chat keypoints for message ${messageIndex}:`, chatKeyPoints);
+                    } else {
+                        console.log(`EchoNav: No chat keypoints found for message ${messageIndex}`);
+                    }
+                    
                     // Create the outline item with structured data (matching main generation format)
                     const outlineItem = {
                         title: cleanTitle,
@@ -1652,7 +1728,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         keyPoints: structuredData.type === 'key_points' ? 
                             structuredData.keyPoints.map(kp => kp.point).join('\n• ') : 
                             'See structured outline',
-                        parsedKeyPoints: structuredData.type === 'key_points' ? structuredData.keyPoints : []
+                        parsedKeyPoints: structuredData.type === 'key_points' ? structuredData.keyPoints : [],
+                        // NEW: Add chat keypoints (from ChatGPT interface generation)
+                        chatKeyPoints: chatKeyPoints
                     };
                     newOutlineItems.push(outlineItem);
                 }
@@ -1767,6 +1845,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 } else if (newTimelineItems.length > 0) {
                     // No existing hierarchy, just save the data
                     console.log("EchoNav: No existing logical hierarchy to update");
+                }
+                
+                // Notify content.js about newly generated titles so it can update temporary outline headers
+                if (newOutlineItems.length > 0) {
+                    console.log(`EchoNav: Notifying content.js about ${newOutlineItems.length} new titles`);
+                    try {
+                        newOutlineItems.forEach((item, itemIndex) => {
+                            const messageIndex = cachedTurnCount + itemIndex;
+                            chrome.tabs.sendMessage(currentTab.id, {
+                                action: "updateOutlineHeaderTitle",
+                                messageIndex: messageIndex,
+                                title: item.title,
+                                item: item // Include full item data for potential use
+                            }).catch(err => {
+                                console.log(`EchoNav: Could not send title update to content.js for message ${messageIndex}:`, err);
+                            });
+                        });
+                    } catch (notifyError) {
+                        console.warn("EchoNav: Error notifying content.js about title updates:", notifyError);
+                        // Don't fail the update if notification fails
+                    }
                 }
                 
                 console.log("EchoNav: Outline updated successfully");
@@ -1950,6 +2049,63 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     sendResponse({ 
                         success: false, 
                         error: error.message 
+                    });
+                }
+            })();
+            return true;
+        } else if (request.action === "generateAndStoreKeyPoints") {
+            // NEW: Generate keypoints and store them in background.js
+            (async () => {
+                try {
+                    console.log("EchoNav: Generating and storing keypoints in background.js");
+                    const { text, conversationId, messageIndex } = request;
+                    
+                    if (!conversationId) {
+                        console.warn("EchoNav: No conversation ID provided");
+                        sendResponse({ 
+                            success: false, 
+                            error: "No conversation ID" 
+                        });
+                        return;
+                    }
+                    
+                    // Generate keypoints using SummarizerAPI
+                    const keyPoints = await callSummarizerAPIForKeyPoints(text);
+                    
+                    if (keyPoints && keyPoints.length > 0) {
+                        const finalKeyPoints = keyPoints.slice(0, 3); // Ensure max 3 points
+                        console.log("EchoNav: Successfully generated key points:", finalKeyPoints);
+                        
+                        // Store keypoints in chrome.storage.local
+                        const storageKey = `echonav_keypoints_${conversationId}`;
+                        
+                        // Get existing data for this conversation
+                        const result = await chrome.storage.local.get([storageKey]);
+                        const conversationData = result[storageKey] || {};
+                        conversationData[messageIndex] = finalKeyPoints;
+                        
+                        // Save updated data
+                        await chrome.storage.local.set({ [storageKey]: conversationData });
+                        console.log(`EchoNav: Saved keypoints to storage in background.js for conversation ${conversationId}, message ${messageIndex}`);
+                        
+                        sendResponse({ 
+                            success: true, 
+                            keyPoints: finalKeyPoints
+                        });
+                    } else {
+                        console.warn("EchoNav: No key points generated");
+                        sendResponse({ 
+                            success: false, 
+                            error: "No key points generated",
+                            useFallback: true
+                        });
+                    }
+                } catch (error) {
+                    console.error("EchoNav: Error generating and storing keypoints:", error);
+                    sendResponse({ 
+                        success: false, 
+                        error: error.message,
+                        useFallback: true
                     });
                 }
             })();
