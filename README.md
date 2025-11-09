@@ -4,12 +4,13 @@ EchoNav is a Chrome extension that transforms AI chat conversations into structu
 
 ## 🌟 Key Features
 
-- **Intelligent Timeline Generation**: Automatically creates structured outlines from AI conversations
-- **Dual Navigation Views**: Timeline view for chronological flow, Insight view for thematic organization  
-- **Screen Reader Optimized**: Full VoiceOver compatibility with ARIA standards and WCAG 2.2 compliance
-- **Voice-First Design**: Keyboard shortcuts, audio cues, and TTS support for hands-free navigation
-- **Real-Time Updates**: Auto-generates outlines as conversations progress
-- **Jump Navigation**: Click any outline item to instantly scroll to the corresponding chat section
+- **📋 Intelligent Timeline Generation**: Automatically creates structured outlines with AI-generated titles and keypoints
+- **🧠 Dual Navigation Views**: Timeline for chronological flow, Insight for thematic organization  
+- **🎯 In-Page Keypoint Display**: Show summary cards directly in ChatGPT conversation
+- **♿ Screen Reader Optimized**: Full VoiceOver compatibility with ARIA standards and WCAG 2.2 AA compliance
+- **⌨️ Keyboard-First Design**: Comprehensive keyboard shortcuts for hands-free navigation
+- **🔄 Smart Auto-Update**: Intelligent detection of new messages with flexible update modes
+- **🌐 Fullscreen Mode**: Immersive timeline overlay on conversation page
 
 ## 🎯 Why EchoNav?
 
@@ -46,20 +47,34 @@ git clone https://github.com/your-username/echonav.git
 
 ## ⚡ Usage
 
-### Basic Navigation
+### Getting Started
 1. Visit ChatGPT (https://chatgpt.com)
-2. Open or start a conversation
-3. Click the EchoNav icon in your toolbar
-4. Click "Generate Timeline" to create the structured outline
+2. Open an existing conversation or start a new one
+3. Click the **EchoNav icon** in your Chrome toolbar to open the side panel
+4. Click **"Generate Timeline"** to create the structured outline
 5. Click any timeline item to jump to that conversation section
 
-### Accessibility Features
-- **VoiceOver Navigation**: Use `Cmd+F5` to enable VoiceOver on macOS
-- **Keyboard Shortcuts**: 
-  - Arrow keys: Navigate between sibling items
-  - `VO+Shift+Up/Down`: Move between hierarchy levels
-  - `Space`: Select and jump to conversation section
-- **Voice Mode**: Toggle automatic TTS announcements
+### Using the Side Panel
+The EchoNav side panel has three main tabs accessible at the bottom:
+
+**📋 Timeline Tab**
+- View chronological conversation structure
+- Click any turn to navigate to that section
+- Use the **⋯ (More Options)** button to:
+  - **Regenerate**: Refresh the timeline with latest conversation
+  - **Enter Fullscreen**: View timeline overlay on the conversation page
+
+**🧠 Insight Tab**
+- Generate AI-powered thematic organization
+- View topics grouped by theme rather than chronology
+- Useful for understanding complex multi-topic discussions
+
+### VoiceOver Support (macOS)
+1. Enable VoiceOver: Press `Cmd+F5`
+2. Navigate to EchoNav side panel
+3. Use `VO + Arrow Keys` to navigate the timeline tree structure
+4. Press `VO + Space` to activate items and jump to conversation sections
+5. Press `VO + U` to activate rotor and navigate through the page
 
 ## ⚙️ Features in Detail
 
@@ -100,10 +115,23 @@ EchoNav uses Chrome's built-in AI APIs to analyze conversation content:
 
 ## 🛠️ Settings
 
-Access settings through the EchoNav interface:
-- **Auto-update**: Automatically refresh outline when new messages appear
-- **Show Keypoints**: Toggle keypoint display in conversation view
-- **Voice Mode**: Enable/disable automatic TTS announcements
+Access settings through the **⚙️ Settings tab** at the bottom of the side panel.
+
+### Available Settings
+
+**Auto-update**  
+Automatically refresh timeline when new messages are detected. When disabled, you'll see a notification badge with an "Update" button to manually refresh.
+
+**Show Keypoints**  
+Display keypoint summary cards directly in the ChatGPT conversation page above each AI response. Toggle this on/off anytime without regenerating the timeline.
+
+**Summary Detail Level**  
+Choose the number of keypoints extracted per conversation turn:
+- **3 keypoints** - Concise, essential points only
+- **5 keypoints** - Balanced detail (default)
+- **7 keypoints** - Comprehensive, detailed summary
+
+*Note: Summary level changes only apply to newly generated timelines*
 
 ## 📋 Current Supported Platforms
 
@@ -112,9 +140,15 @@ Access settings through the EchoNav interface:
 ## ⚠️ Troubleshooting
 
 **Extension not loading:**
-- Ensure Chrome is up to date
-- Verify developer mode is enabled
-- Check browser console for error messages
+- Ensure Chrome Dev/Canary version ≥ 128.0.6545.0
+- Verify Chrome built-in AI is enabled (see Installation step 1)
+- Check that developer mode is enabled in `chrome://extensions/`
+- Look for error messages in the browser console (F12)
+
+**Side panel not opening:**
+- Click the EchoNav icon in the Chrome toolbar
+- Try closing and reopening the panel
+- Refresh the ChatGPT page and try again
 
 **Timeline not generating:**
 - Confirm you're on a supported site (ChatGPT)

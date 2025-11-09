@@ -548,6 +548,13 @@ class AccessibilityManager {
         treeContainer.removeAttribute('tabindex');
         treeContainer.removeAttribute('aria-label');
         
+        // Update the tabpanel's aria-label to include count
+        // This provides a better description at the tabpanel level
+        const timelineTabPanel = document.getElementById('timeline-tab');
+        if (timelineTabPanel) {
+            timelineTabPanel.setAttribute('aria-label', `Timeline View, ${itemCount} round${itemCount !== 1 ? 's' : ''} of conversation`);
+        }
+        
         // Apply ARIA attributes to all timeline items
         this.applyAriaAttributesToNodes();
         
@@ -656,7 +663,9 @@ class AccessibilityManager {
             keyPoint.setAttribute('tabindex', '-1');
             
             const keyPointText = keyPoint.textContent.trim();
-            const ariaLabel = `Detail ${index + 1}: ${keyPointText}. Space: Jump to this part of conversation`;
+            // Note: Due to VoiceOver's virtual cursor vs DOM focus separation,
+            // users must use VO+Space (not just Space) to jump from detail items
+            const ariaLabel = `Detail ${index + 1}: ${keyPointText}. VO+Space: Jump to this detail`;
             keyPoint.setAttribute('aria-label', ariaLabel);
         });
     }
@@ -687,11 +696,13 @@ class AccessibilityManager {
             
             // H2 (level 0): no prefix, just read the title
             // H3+ (level 1+): add "Subsection:" prefix
+            // Note: Due to VoiceOver's virtual cursor vs DOM focus separation,
+            // users must use VO+Space (not just Space) to jump from heading items
             let ariaLabel;
             if (originalLevel === 0) {
-                ariaLabel = `${itemText}. Space: Jump to this part of conversation`;
+                ariaLabel = `${itemText}. VO+Space: Jump to this heading`;
             } else {
-                ariaLabel = `Subsection: ${itemText}. Space: Jump to this part of conversation`;
+                ariaLabel = `Subsection: ${itemText}. VO+Space: Jump to this heading`;
             }
             
             item.setAttribute('aria-label', ariaLabel);
@@ -847,13 +858,16 @@ class AccessibilityManager {
 
         const isVoiceOverModifier = e.ctrlKey && e.altKey; // Control + Option (VO modifier on macOS)
 
-        // Handle Space key - always jumps to content
+        // Handle Space key - jumps to content
         if (e.key === ' ') {
             e.preventDefault();
             e.stopPropagation();
             console.log('EchoNav Accessibility: Space key - jumping to content');
             // Use the actual focused element (document.activeElement) to ensure we jump to the correct item
             // This is more reliable than this.currentFocusedNode, especially with VoiceOver
+            // Note: Due to VoiceOver's virtual cursor vs DOM focus separation, Space key
+            // will jump to the parent timeline-item when VoiceOver cursor is on a child heading.
+            // Users should use VO+Space to jump from heading items.
             const focusedNode = document.activeElement && document.activeElement.hasAttribute('role') && 
                               document.activeElement.getAttribute('role') === 'treeitem' 
                               ? document.activeElement 

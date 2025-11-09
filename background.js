@@ -494,78 +494,90 @@ JSON format:
             console.log(`EchoNav: Processing Timeline item ${itemIndex + 1}: "${item.title}"`);
             console.log(`EchoNav: - Type: ${item.structuredData?.type || 'unknown'}`);
             
+            let hasSubdirectoryItems = false; // Track if this turn has any subdirectory items
+            
             // Extract subdirectory items based on structure type
             if (item.structuredData) {
                 if (item.structuredData.type === 'structured') {
                     // Case A: Headings structure
                     console.log(`EchoNav: - Found ${item.structuredData.outline?.length || 0} headings`);
-                    item.structuredData.outline?.forEach((heading, headingIndex) => {
-                        const uniqueId = `item-${itemIndex}-heading-${headingIndex}`;
-                        allTimelineItems.push({
-                            id: uniqueId,
-                            text: heading.text,
-                            originalItem: itemIndex,
-                            originalIndex: headingIndex,
-                            type: 'heading',
-                            level: heading.level,
-                            traceability: {
-                                title: item.title,
-                                originalText: item.originalText,
-                                assistantText: item.assistantText,
-                                assistantUniqueId: item.assistantUniqueId,
-                                headingId: heading.uniqueId,
-                                headingTagName: heading.tagName
-                            }
+                    if (item.structuredData.outline && item.structuredData.outline.length > 0) {
+                        hasSubdirectoryItems = true;
+                        item.structuredData.outline.forEach((heading, headingIndex) => {
+                            const uniqueId = `item-${itemIndex}-heading-${headingIndex}`;
+                            allTimelineItems.push({
+                                id: uniqueId,
+                                text: heading.text,
+                                originalItem: itemIndex,
+                                originalIndex: headingIndex,
+                                type: 'heading',
+                                level: heading.level,
+                                traceability: {
+                                    title: item.title,
+                                    originalText: item.originalText,
+                                    assistantText: item.assistantText,
+                                    assistantUniqueId: item.assistantUniqueId,
+                                    headingId: heading.uniqueId,
+                                    headingTagName: heading.tagName
+                                }
+                            });
                         });
-                    });
+                    }
                 } else if (item.structuredData.type === 'themed_groups') {
                     // Case B1: Themed groups
                     console.log(`EchoNav: - Found ${item.structuredData.themes?.length || 0} themes`);
-                    item.structuredData.themes?.forEach((theme, themeIndex) => {
-                        const uniqueId = `item-${itemIndex}-theme-${themeIndex}`;
-                        allTimelineItems.push({
-                            id: uniqueId,
-                            text: theme.themeName,
-                            originalItem: itemIndex,
-                            originalIndex: themeIndex,
-                            type: 'theme',
-                            level: 1,
-                            traceability: {
-                                title: item.title,
-                                originalText: item.originalText,
-                                assistantText: item.assistantText,
-                                assistantUniqueId: item.assistantUniqueId,
-                                themeName: theme.themeName,
-                                paragraphIds: theme.paragraphIds
-                            }
+                    if (item.structuredData.themes && item.structuredData.themes.length > 0) {
+                        hasSubdirectoryItems = true;
+                        item.structuredData.themes.forEach((theme, themeIndex) => {
+                            const uniqueId = `item-${itemIndex}-theme-${themeIndex}`;
+                            allTimelineItems.push({
+                                id: uniqueId,
+                                text: theme.themeName,
+                                originalItem: itemIndex,
+                                originalIndex: themeIndex,
+                                type: 'theme',
+                                level: 1,
+                                traceability: {
+                                    title: item.title,
+                                    originalText: item.originalText,
+                                    assistantText: item.assistantText,
+                                    assistantUniqueId: item.assistantUniqueId,
+                                    themeName: theme.themeName,
+                                    paragraphIds: theme.paragraphIds
+                                }
+                            });
                         });
-                    });
+                    }
                 } else if (item.structuredData.type === 'key_points') {
                     // Fallback: Key points
                     console.log(`EchoNav: - Found ${item.structuredData.keyPoints?.length || 0} key points`);
-                    item.structuredData.keyPoints?.forEach((keyPoint, pointIndex) => {
-                        const uniqueId = `item-${itemIndex}-keypoint-${pointIndex}`;
-                        allTimelineItems.push({
-                            id: uniqueId,
-                            text: keyPoint.point,
-                            originalItem: itemIndex,
-                            originalIndex: pointIndex,
-                            type: 'keypoint',
-                            level: 1,
-                            traceability: {
-                                title: item.title,
-                                originalText: item.originalText,
-                                assistantText: item.assistantText,
-                                assistantUniqueId: item.assistantUniqueId,
-                                match: keyPoint.match
-                            }
+                    if (item.structuredData.keyPoints && item.structuredData.keyPoints.length > 0) {
+                        hasSubdirectoryItems = true;
+                        item.structuredData.keyPoints.forEach((keyPoint, pointIndex) => {
+                            const uniqueId = `item-${itemIndex}-keypoint-${pointIndex}`;
+                            allTimelineItems.push({
+                                id: uniqueId,
+                                text: keyPoint.point,
+                                originalItem: itemIndex,
+                                originalIndex: pointIndex,
+                                type: 'keypoint',
+                                level: 1,
+                                traceability: {
+                                    title: item.title,
+                                    originalText: item.originalText,
+                                    assistantText: item.assistantText,
+                                    assistantUniqueId: item.assistantUniqueId,
+                                    match: keyPoint.match
+                                }
+                            });
                         });
-                    });
+                    }
                 }
                 // Note: simple_paragraphs are intentionally not included as they're too granular
             } else if (item.parsedKeyPoints && item.parsedKeyPoints.length > 0) {
                 // Legacy fallback: use parsed key points
                 console.log(`EchoNav: - Using legacy parsedKeyPoints (${item.parsedKeyPoints.length} points)`);
+                hasSubdirectoryItems = true;
                 item.parsedKeyPoints.forEach((keyPoint, pointIndex) => {
                     const uniqueId = `item-${itemIndex}-keypoint-${pointIndex}`;
                     allTimelineItems.push({
@@ -583,6 +595,26 @@ JSON format:
                             match: keyPoint.match
                         }
                     });
+                });
+            }
+            
+            // Special case: If no subdirectory items were found (response too short), use the turn title itself
+            if (!hasSubdirectoryItems) {
+                console.log(`EchoNav: - Turn ${itemIndex + 1} has no subdirectory items (response too short), using turn title as fallback item`);
+                const uniqueId = `item-${itemIndex}-turntitle-0`;
+                allTimelineItems.push({
+                    id: uniqueId,
+                    text: item.title,
+                    originalItem: itemIndex,
+                    originalIndex: 0,
+                    type: 'turntitle', // New type for turn title fallback
+                    level: 1,
+                    traceability: {
+                        title: item.title,
+                        originalText: item.originalText,
+                        assistantText: item.assistantText,
+                        assistantUniqueId: item.assistantUniqueId
+                    }
                 });
             }
         });
@@ -626,38 +658,80 @@ JSON format:
             topK: 1         // Most likely response only
         });
         
-        // Build a more concise prompt - only essential information
-        const timelineItemsText = allTimelineItems.map((item, idx) => 
-            `${idx + 1}. [${item.id}] ${item.text}`
-        ).join('\n');
+        // Build prompt with turn context for better understanding
+        // Group items by turn for clearer context
+        const itemsByTurnForPrompt = {};
+        allTimelineItems.forEach(item => {
+            const turnIndex = item.originalItem;
+            if (!itemsByTurnForPrompt[turnIndex]) {
+                itemsByTurnForPrompt[turnIndex] = {
+                    title: item.traceability?.title || `Turn ${turnIndex + 1}`,
+                    items: []
+                };
+            }
+            itemsByTurnForPrompt[turnIndex].items.push(item);
+        });
         
-        const prompt = `Create a refined logical hierarchy from Timeline items. You can MERGE similar items and FILTER meaningless ones to create a clean, insightful structure.
+        // Format items with turn context
+        let itemCounter = 0;
+        const timelineItemsText = Object.keys(itemsByTurnForPrompt)
+            .sort((a, b) => parseInt(a) - parseInt(b))
+            .map(turnIndex => {
+                const turn = itemsByTurnForPrompt[turnIndex];
+                const turnHeader = `\n--- Turn Context: "${turn.title}" ---`;
+                const turnItems = turn.items.map(item => {
+                    itemCounter++;
+                    // Add type annotation for turntitle items to help AI recognize them
+                    const typeTag = item.type === 'turntitle' ? ' [TYPE: turntitle - fallback for short response]' : '';
+                    return `${itemCounter}. [${item.id}] ${item.text}${typeTag}`;
+                }).join('\n');
+                return turnHeader + '\n' + turnItems;
+            }).join('\n');
+        
+        const prompt = `Create a refined logical hierarchy from Timeline items. Each item is labeled with its "Turn Context" (the conversation turn it came from). Use this context to better understand the content, but DO NOT include Turn titles as separate nodes in your hierarchy UNLESS it's explicitly marked as type "turntitle".
 
-Items (${allTimelineItems.length} total):
+Items (${allTimelineItems.length} total from ${outlineItems.length} turns):
 ${timelineItemsText}
 
 INTELLIGENT PROCESSING RULES:
-1. **MERGE similar/redundant items**: 
-   - "The origin of rock" + "The beginning of rock" → "The origin of rock" (use both IDs)
-   - "Python basics" + "Python fundamentals" → "Python fundamentals" (use both IDs)
 
-2. **FILTER meaningless items**:
+1. **USE TURN CONTEXT for understanding**:
+   - Turn Context helps you understand the topic being discussed
+   - Items from the same turn are related to that turn's topic
+   - Items from different turns may discuss the same theme
+   - ⚠️ DO NOT create hierarchy nodes from Turn Context titles themselves
+   - ✅ EXCEPTION: Items with type "turntitle" are special fallback items for turns with very short responses. These MUST be included in your hierarchy as they represent the only available content for that turn.
+
+2. **MERGE similar/redundant items ACROSS TURNS**:
+   - "The origin of rock" (Turn 1) + "The beginning of rock" (Turn 3) → "The origin of rock" (use both IDs)
+   - Look for semantic similarity even if items are from different turns
+   - Use turn context to disambiguate: "security" in "Web Security" vs "security" in "Home Security"
+   - Items with type "turntitle" CAN be merged if they are semantically similar to other items, but should be preserved if unique
+
+3. **FILTER meaningless items**:
    - Remove: "In summary", "In conclusion", "To wrap up", "Finally", "Let me summarize"
    - Remove: Generic transitions like "Next", "Moving on", "Additionally"
+   - Remove: Redundant meta-statements like "Here's what we discussed"
    - Keep meaningful content items only
+   - ⚠️ DO NOT filter items with type "turntitle" unless they are truly meaningless (e.g., just "Ok", "Thanks")
 
-3. **PRESERVE traceability**: 
+4. **CREATE LOGICAL THEMES** (2-5 main topics):
+   - Group items by actual content meaning, not by turn
+   - Theme names should be NEW, descriptive, and capture the essence
+   - Use turn context to create more accurate groupings
+   - Example: Items from "Python basics" and "JavaScript intro" → Theme: "Programming Fundamentals"
+
+5. **PRESERVE traceability**:
    - Merged items: include ALL original IDs
    - Filtered items: mark as filtered but keep IDs for reference
 
-4. **Create 2-5 logical themes** based on actual content significance
-5. **Use the BEST representative text** from merged items (usually the clearest/most specific one)
+6. **USE the BEST representative text** from merged items (clearest/most specific)
 
 JSON format:
 {
   "hierarchy": [
     {
-      "topic": "Main Topic Name",
+      "topic": "Main Theme Name (NEW, descriptive)",
       "level": 0,
       "originalIds": [],
       "subpoints": [
@@ -842,12 +916,22 @@ function addTraceabilityToHierarchy(hierarchy, allTimelineItems) {
             if (!timelineItem) return null;
             
             // Return enhanced traceability with item type information
-            return {
+            // For turntitle type, keep the original traceability.originalText (user question) for navigation
+            // and add itemText (turn title) for display/logging purposes
+            const traceInfo = {
                 ...timelineItem.traceability,
                 itemType: timelineItem.type,
                 originalId: timelineItem.id,
-                originalText: timelineItem.text // Include original text for merged items
+                itemText: timelineItem.text // Display text (heading/theme/keypoint/turn title)
             };
+            
+            // For non-turntitle types, we can use itemText as originalText for display
+            // But for turntitle, keep the traceability.originalText (user question) unchanged
+            if (timelineItem.type !== 'turntitle') {
+                traceInfo.displayText = timelineItem.text;
+            }
+            
+            return traceInfo;
         }).filter(t => t !== null);
         
         // For merged items, mark which one is the primary (first one) for navigation
@@ -855,7 +939,7 @@ function addTraceabilityToHierarchy(hierarchy, allTimelineItems) {
             enrichedNode.traceability[0].isPrimary = true;
             enrichedNode.isMerged = true;
             console.log(`EchoNav: Node "${node.topic}" merges ${enrichedNode.traceability.length} items:`, 
-                enrichedNode.traceability.map(t => t.originalText));
+                enrichedNode.traceability.map(t => t.itemText || t.displayText || t.originalText));
         }
         
         // Add merged information if available
@@ -1122,18 +1206,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             let cleanTitle;
                             
                             if (turn.responseStructure && turn.responseStructure.type === 'structured' && turn.responseStructure.headings.length > 0) {
-                                // For structured responses, always generate title using Summarizer with first paragraph + all headings
+                                // For structured responses, check if there's only one top-level heading
                                 const topLevelHeadings = turn.responseStructure.headings.filter(h => h.normalizedLevel === 1);
-                                console.log(`EchoNav: Found ${topLevelHeadings.length} top-level heading(s), generating title with Summarizer for turn ${i + 1}`);
+                                console.log(`EchoNav: Found ${topLevelHeadings.length} top-level heading(s) for turn ${i + 1}`);
                                 
-                                // Always send first paragraph + all headings (including top-level) to Summarizer
+                                // When there's only ONE top-level heading, still use Summarizer to generate title
+                                // This ensures better contextual titles rather than directly using the heading
                                 let summarizerInput = contextPrompt;
                                 
                                 // Extract first paragraph from assistant response
                                 const assistantText = turn.assistant;
                                 const firstParagraph = assistantText.split('\n\n')[0] || assistantText.substring(0, 300);
                                 
-                                // Extract all headings text (including top-level)
+                                // Extract all headings text
                                 const headingsList = turn.responseStructure.headings.map(h => h.text).join('\n');
                                 
                                 // Build optimized input for Summarizer
@@ -1186,16 +1271,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                                         console.log(`EchoNav: - Heading ${idx + 1}: ${h.tagName} (Level ${h.normalizedLevel}) - "${h.text}"`);
                                     });
                                     
+                                    // Check if there's only ONE top-level heading
+                                    const topLevelHeadings = turn.responseStructure.headings.filter(h => h.normalizedLevel === 1);
+                                    
+                                    // If there's only ONE top-level heading, exclude it from the outline (it shouldn't be in TOC)
+                                    let headingsForOutline = turn.responseStructure.headings;
+                                    if (topLevelHeadings.length === 1 && turn.responseStructure.headings.length > 1) {
+                                        // Exclude the single top-level heading from outline
+                                        headingsForOutline = turn.responseStructure.headings.filter(h => h.uniqueId !== topLevelHeadings[0].uniqueId);
+                                        console.log(`EchoNav: Found single top-level heading "${topLevelHeadings[0].text}" - excluding from outline`);
+                                    }
+                                    
                                     structuredData = {
                                         type: 'structured',
-                                        outline: turn.responseStructure.headings.map(h => ({
+                                        outline: headingsForOutline.map(h => ({
                                             level: h.normalizedLevel,
                                             text: h.text,
                                             uniqueId: h.uniqueId,
                                             tagName: h.tagName
                                         }))
                                     };
-                                    responseOutline = turn.responseStructure.headings;
+                                    responseOutline = headingsForOutline;
                                     console.log(`EchoNav: ✅ CASE A COMPLETE - Created structured outline with ${structuredData.outline.length} headings`);
                                     
                                 } else if (turn.responseStructure.type === 'plain_text') {
@@ -1626,13 +1722,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     let cleanTitle;
                     
                     if (turn.responseStructure && turn.responseStructure.type === 'structured' && turn.responseStructure.headings.length > 0) {
-                        const topLevelHeadings = turn.responseStructure.headings.filter(h => h.normalizedLevel === 1);
-                        if (topLevelHeadings.length === 1) {
-                            cleanTitle = topLevelHeadings[0].text;
-                        } else {
-                            const titleResult = await summarizer.summarize(turnText);
-                            cleanTitle = titleResult.trim();
-                        }
+                        // For structured responses, always use Summarizer to generate title
+                        // Even if there's only one top-level heading, we want a contextual title
+                        const titleResult = await summarizer.summarize(turnText);
+                        cleanTitle = titleResult.trim();
                     } else {
                         const titleResult = await summarizer.summarize(turnText);
                         cleanTitle = titleResult.trim();
@@ -1644,16 +1737,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     
                     if (turn.responseStructure) {
                         if (turn.responseStructure.type === 'structured') {
+                            // Check if there's only ONE top-level heading
+                            const topLevelHeadings = turn.responseStructure.headings.filter(h => h.normalizedLevel === 1);
+                            
+                            // If there's only ONE top-level heading, exclude it from the outline (it shouldn't be in TOC)
+                            let headingsForOutline = turn.responseStructure.headings;
+                            if (topLevelHeadings.length === 1 && turn.responseStructure.headings.length > 1) {
+                                // Exclude the single top-level heading from outline
+                                headingsForOutline = turn.responseStructure.headings.filter(h => h.uniqueId !== topLevelHeadings[0].uniqueId);
+                            }
+                            
                             structuredData = {
                                 type: 'structured',
-                                outline: turn.responseStructure.headings.map(h => ({
+                                outline: headingsForOutline.map(h => ({
                                     level: h.normalizedLevel,
                                     text: h.text,
                                     uniqueId: h.uniqueId,
                                     tagName: h.tagName
                                 }))
                             };
-                            responseOutline = turn.responseStructure.headings;
+                            responseOutline = headingsForOutline;
                             
                         } else if (turn.responseStructure.type === 'plain_text') {
                             const paragraphs = turn.responseStructure.paragraphs;
@@ -2110,22 +2213,121 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }
             })();
             return true;
+        } else if (request.action === "generateTimelineKeypoints") {
+            // NEW: Generate keypoints for all timeline items asynchronously
+            (async () => {
+                try {
+                    console.log("EchoNav: Starting async timeline keypoints generation");
+                    const { conversationId, turns } = request;
+                    
+                    if (!conversationId || !turns || turns.length === 0) {
+                        console.warn("EchoNav: Invalid request for timeline keypoints generation");
+                        sendResponse({ success: false, error: "Invalid request" });
+                        return;
+                    }
+                    
+                    console.log(`EchoNav: Generating keypoints for ${turns.length} turns in conversation ${conversationId}`);
+                    
+                    // Load existing keypoints
+                    const storageKey = `echonav_keypoints_${conversationId}`;
+                    const result = await chrome.storage.local.get([storageKey]);
+                    const existingKeypoints = result[storageKey] || {};
+                    
+                    // Process each turn sequentially to avoid overwhelming the API
+                    for (let i = 0; i < turns.length; i++) {
+                        const turn = turns[i];
+                        const messageIndex = turn.messageIndex.toString();
+                        
+                        // Skip if keypoints already exist for this message
+                        if (existingKeypoints[messageIndex]) {
+                            console.log(`EchoNav: Keypoints already exist for message ${messageIndex}, skipping`);
+                            continue;
+                        }
+                        
+                        try {
+                            // Only use assistant's response text for keypoints (not user question)
+                            const assistantText = turn.assistant;
+                            console.log(`EchoNav: Generating keypoints for turn ${i + 1}/${turns.length} (message ${messageIndex})`);
+                            
+                            // Generate keypoints using Summarizer API
+                            const keyPoints = await callSummarizerAPIForKeyPoints(assistantText);
+                            
+                            if (keyPoints && keyPoints.length > 0) {
+                                const finalKeyPoints = keyPoints.slice(0, 3);
+                                console.log(`EchoNav: Generated keypoints for message ${messageIndex}:`, finalKeyPoints);
+                                
+                                // Store in chrome.storage.local
+                                existingKeypoints[messageIndex] = finalKeyPoints;
+                                await chrome.storage.local.set({ [storageKey]: existingKeypoints });
+                                
+                                // Notify all listeners (sidepanel and content script) about the update
+                                chrome.runtime.sendMessage({
+                                    action: "timelineKeypointGenerated",
+                                    conversationId: conversationId,
+                                    messageIndex: messageIndex,
+                                    keyPoints: finalKeyPoints,
+                                    turnIndex: i
+                                }).catch(() => {
+                                    // Ignore errors if no listeners
+                                });
+                                
+                                console.log(`EchoNav: ✅ Keypoints generated and stored for turn ${i + 1}`);
+                            } else {
+                                console.warn(`EchoNav: No keypoints generated for turn ${i + 1}`);
+                            }
+                            
+                            // Small delay between requests to avoid rate limiting
+                            await new Promise(resolve => setTimeout(resolve, 100));
+                            
+                        } catch (turnError) {
+                            console.error(`EchoNav: Error generating keypoints for turn ${i + 1}:`, turnError);
+                            // Continue with next turn even if this one fails
+                        }
+                    }
+                    
+                    console.log("EchoNav: ✅ Timeline keypoints generation completed");
+                    
+                    // Send completion notification
+                    chrome.runtime.sendMessage({
+                        action: "timelineKeypointsCompleted",
+                        conversationId: conversationId
+                    }).catch(() => {
+                        // Ignore errors if no listeners
+                    });
+                    
+                    sendResponse({ success: true });
+                    
+                } catch (error) {
+                    console.error("EchoNav: Error in timeline keypoints generation:", error);
+                    sendResponse({ success: false, error: error.message });
+                }
+            })();
+            return true;
         }
     });
 
 // NEW: Function to call SummarizerAPI specifically for key points generation
 async function callSummarizerAPIForKeyPoints(text) {
     try {
-        console.log("EchoNav: Generating key points using SummarizerAPI");
+        // Calculate word count to determine summarization type
+        const wordCount = text.trim().split(/\s+/).filter(word => word.length > 0).length;
+        console.log(`EchoNav: Text has ${wordCount} words, determining summarization type`);
         
         // Check if Summarizer API is available
         if (!('Summarizer' in self)) {
             throw new Error("Summarizer API is not available");
         }
         
-        // Create summarizer with key points optimized settings
+        // Choose summarization type based on word count
+        // < 200 words: tldr-short (1 sentence)
+        // >= 200 words: key-points-short (3 bullet points)
+        const summarizerType = wordCount < 200 ? 'tldr' : 'key-points';
+        
+        console.log(`EchoNav: Using summarization type: ${summarizerType} (${wordCount} words)`);
+        
+        // Create summarizer with appropriate settings
         const summarizer = await self.Summarizer.create({
-            type: 'key-points',
+            type: summarizerType,
             format: 'plain-text',
             length: 'short'
         });
@@ -2135,14 +2337,22 @@ async function callSummarizerAPIForKeyPoints(text) {
         
         console.log("EchoNav: Raw summarizer output:", summary);
         
-        // Parse the key points from the summary
-        const keyPoints = parseKeyPoints(summary);
-        
         // Destroy the summarizer to free resources
         summarizer.destroy();
         
-        console.log("EchoNav: Parsed key points:", keyPoints);
-        return keyPoints.slice(0, 3); // Return max 3 points
+        // Parse the output based on type
+        let keyPoints;
+        if (summarizerType === 'tldr') {
+            // tldr-short returns 1 sentence, wrap it in an array
+            keyPoints = [summary.trim()];
+            console.log("EchoNav: Generated tldr summary (1 sentence):", keyPoints);
+        } else {
+            // key-points returns bullet points, parse them
+            keyPoints = parseKeyPoints(summary);
+            console.log("EchoNav: Parsed key points:", keyPoints);
+        }
+        
+        return keyPoints.slice(0, 3); // Return max 3 points (or 1 for tldr)
         
     } catch (error) {
         console.error("EchoNav: SummarizerAPI error:", error);

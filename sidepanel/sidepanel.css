@@ -200,6 +200,11 @@ body {
 }
 
 .toggle-switch input:checked + .switch-slider:before {
+    /* Total width: 44px, circle width: 18px, margin: 3px each side
+       Left position when off: 3px
+       Left position when on: 44px - 18px - 3px = 23px
+       Translation needed: 23px - 3px = 20px
+       Adjust this value to fine-tune spacing (decrease for tighter right margin) */
     transform: translateX(20px);
 }
 
@@ -318,8 +323,10 @@ body {
 
 .panel-content {
     padding: var(--space-lg);
-    height: calc(100% - 80px);
+    padding-bottom: calc(var(--space-lg) + 60px); /* Add extra bottom padding for tab navigation */
+    height: 100%;
     overflow-y: auto;
+    box-sizing: border-box;
 }
 
 /* Button Styles */
@@ -432,6 +439,13 @@ body {
 .error-text {
     color: var(--danger-color);
     font-weight: 500;
+}
+
+.hint {
+    font-size: var(--font-size-sm);
+    color: var(--text-tertiary);
+    font-style: italic;
+    margin-top: var(--space-xs);
 }
 
 .waiting-indicator {
@@ -961,6 +975,12 @@ body {
     background-color: transparent;
 }
 
+.logical-item.level-0:hover .logical-arrow {
+    background-color: var(--border-hover);  /* Deep gray on hover */
+    color: var(--text-secondary);  /* Darker gray arrow */
+    transform: scale(1.15);  /* Grow on hover like TimelineView */
+}
+
 .logical-item:not(.level-0):hover {
     background-color: var(--bg-secondary);
 }
@@ -982,17 +1002,20 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
-    flex: 0 0 24px;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
     border-radius: 50%;
     cursor: pointer;
-    transition: background-color var(--transition-fast);
+    transition: all var(--transition-fast);
+    background-color: var(--border-color);  /* Much deeper gray */
+    color: var(--text-muted);
 }
 
 .logical-item .logical-arrow:hover {
-    color: var(--primary-color);
-    background-color: rgba(37, 99, 235, 0.1);
+    color: var(--text-secondary);
+    background-color: var(--border-hover);  /* Even deeper gray on hover */
+    transform: scale(1.15);  /* Grow on hover like TimelineView */
 }
 
 .logical-item .logical-arrow::before {
@@ -1083,6 +1106,76 @@ body {
     flex-shrink: 0;
 }
 
+
+/* Update Notification */
+.update-notification {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: #e8f4fd;
+    border-bottom: 2px solid #2563eb;
+    padding: var(--space-md);
+    animation: slideDown 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.update-notification-content {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.update-icon {
+    font-size: var(--font-size-lg);
+    flex-shrink: 0;
+}
+
+.update-text {
+    flex: 1;
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.update-text #update-count {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.update-btn {
+    padding: var(--space-sm) var(--space-lg);
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+}
+
+.update-btn:hover {
+    background-color: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.update-btn:active {
+    transform: translateY(0);
+}
 
 /* Utility Classes */
 .hidden {
@@ -1245,7 +1338,7 @@ input:focus-visible {
 }
 
 .setting-group h3 {
-    font-size: var(--font-size-lg);
+    font-size: var(--font-size-base);
     font-weight: 600;
     color: var(--text-primary);
     margin: 0 0 var(--space-md) 0;
@@ -1253,16 +1346,22 @@ input:focus-visible {
     padding-bottom: var(--space-sm);
 }
 
+.setting-subsection {
+    margin-bottom: var(--space-lg);
+}
+
+.setting-subsection-header {
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-sm);
+}
+
 .setting-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--space-md) 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.setting-item:last-child {
-    border-bottom: none;
+    gap: var(--space-md);
 }
 
 .setting-item .setting-label {
@@ -1271,7 +1370,109 @@ input:focus-visible {
 }
 
 .setting-item .setting-description {
+    flex: 1;
     font-size: var(--font-size-xs);
     color: var(--text-secondary);
-    margin-top: var(--space-xs);
+    line-height: 1.5;
 }
+
+.about-item {
+    padding: var(--space-md) 0;
+}
+
+.about-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+/* Select Dropdown Styles */
+.setting-select {
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--font-size-sm);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    min-width: 140px;
+}
+
+.setting-select:hover {
+    border-color: var(--border-hover);
+    background-color: var(--bg-secondary);
+}
+
+.setting-select:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-color: var(--primary-color);
+}
+
+/* Dialog Overlay */
+.dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.dialog-overlay.hidden {
+    display: none;
+}
+
+/* Dialog Box */
+.dialog-box {
+    background-color: var(--bg-primary);
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
+    max-width: 400px;
+    width: 90%;
+    box-shadow: var(--shadow-lg);
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dialog-box h3 {
+    margin: 0 0 var(--space-md) 0;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.dialog-box p {
+    margin: 0 0 var(--space-lg) 0;
+    font-size: var(--font-size-sm);
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+.dialog-buttons {
+    display: flex;
+    gap: var(--space-md);
+    justify-content: flex-end;
+}
+
+.dialog-buttons button {
+    min-width: 80px;
+}
+

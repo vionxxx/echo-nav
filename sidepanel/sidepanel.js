@@ -16,6 +16,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const fullscreenOption = document.getElementById('fullscreen-option');
     const insightWelcome = document.getElementById('insight-welcome');
     const showKeypointsToggle = document.getElementById('show-keypoints-toggle');
+    const updateNotification = document.getElementById('update-notification');
+    const updateCountSpan = document.getElementById('update-count');
+    const manualUpdateBtn = document.getElementById('manual-update-btn');
+    const summaryLevelSelect = document.getElementById('summary-level-select');
+    const dialogOverlay = document.getElementById('confirm-dialog-overlay');
+    const dialogConfirm = document.getElementById('dialog-confirm');
+    const dialogCancel = document.getElementById('dialog-cancel');
+    let pendingSummaryLevel = null; // Store pending change
     let fullTextToRead = '';
     let isSpeaking = false;
     let currentOutlineItems = [];
@@ -27,22 +35,41 @@ document.addEventListener('DOMContentLoaded', () => {
     let updateOutlineRetryCount = 0;
     const MAX_UPDATE_RETRY = 5;
     let isUpdatingOutline = false; // Flag to prevent concurrent updateOutline calls
+    let pendingNewMessageCount = 0; // Track number of new messages waiting for update
     
-    // Helper function to manage outline landmark visibility
-    function updateOutlineLandmark(hasContent) {
-        if (hasContent) {
-            // Outline has content - make it a landmark
-            outlineDiv.setAttribute('role', 'main');
-            outlineDiv.setAttribute('aria-label', 'EchoNav, conversation outline');
-        } else {
-            // Outline is empty - hide from landmarks
-            outlineDiv.setAttribute('role', 'presentation');
-            outlineDiv.removeAttribute('aria-label');
+    // Helper function to safely send messages and handle context invalidation
+    function safeSendMessage(message, callback) {
+        try {
+            // Check if chrome.runtime is available
+            if (!chrome.runtime || !chrome.runtime.sendMessage) {
+                throw new Error('Extension context invalidated');
+            }
+            
+            chrome.runtime.sendMessage(message, (response) => {
+                // Check if there was a runtime error
+                if (chrome.runtime.lastError) {
+                    console.error('EchoNav: Runtime error:', chrome.runtime.lastError.message);
+                    callback({ error: 'Extension context invalidated. Please reload the side panel.' });
+                    return;
+                }
+                callback(response);
+            });
+        } catch (error) {
+            console.error('EchoNav: Failed to send message:', error);
+            callback({ error: 'Extension context invalidated. Please reload the side panel.' });
         }
     }
     
-        // Load toggle states
-        chrome.storage.local.get(['autoUpdateEnabled', 'showKeypointsEnabled'], (result) => {
+    // Helper function to manage outline landmark visibility
+    function updateOutlineLandmark(hasContent) {
+        // Always keep outline div transparent to screen readers
+        // The tabpanel's aria-label provides the necessary context
+        outlineDiv.setAttribute('role', 'presentation');
+        outlineDiv.removeAttribute('aria-label');
+    }
+    
+        // Load toggle states and settings
+        chrome.storage.local.get(['autoUpdateEnabled', 'showKeypointsEnabled', 'summaryLevel'], (result) => {
             if (result.autoUpdateEnabled !== undefined) {
                 autoUpdateToggle.checked = result.autoUpdateEnabled;
             }
@@ -53,6 +80,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 showKeypointsToggle.checked = true;
                 chrome.storage.local.set({ showKeypointsEnabled: true });
             }
+            // Load summary level (default to 'short' = 3 keypoints)
+            const summaryLevel = result.summaryLevel || 'short';
+            summaryLevelSelect.value = summaryLevel;
         });
 
         // Save toggle states when changed
@@ -65,6 +95,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const isEnabled = showKeypointsToggle.checked;
             chrome.storage.local.set({ showKeypointsEnabled: isEnabled });
             console.log("EchoNav: Show keypoints toggle changed to:", isEnabled);
+            
+            // Send message to content script to show/hide keypoints in the conversation page
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (tabs[0]) {
+                    chrome.tabs.sendMessage(tabs[0].id, {
+                        action: 'toggleKeypointsDisplay',
+                        showKeypoints: isEnabled
+                    });
+                }
+            });
             
             // If fullscreen is active, refresh the outline view to apply changes
             if (isOutlineViewMode) {
@@ -87,6 +127,67 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
         });
+        
+        // Manual update button click handler
+        manualUpdateBtn.addEventListener('click', () => {
+            console.log("EchoNav: Manual update triggered");
+            updateNotification.classList.add('hidden');
+            pendingNewMessageCount = 0;
+            updateOutline();
+        });
+        
+        // Summary level select change handler with confirmation dialog
+        summaryLevelSelect.addEventListener('change', (e) => {
+            const newValue = e.target.value;
+            
+            // Get current saved value
+            chrome.storage.local.get(['summaryLevel'], (result) => {
+                const currentValue = result.summaryLevel || 'short';
+                
+                // If value actually changed, show confirmation dialog
+                if (newValue !== currentValue) {
+                    pendingSummaryLevel = newValue;
+                    showDialog();
+                    // Revert select to current value (will update if user confirms)
+                    summaryLevelSelect.value = currentValue;
+                }
+            });
+        });
+        
+        // Dialog confirm button
+        dialogConfirm.addEventListener('click', () => {
+            if (pendingSummaryLevel) {
+                chrome.storage.local.set({ summaryLevel: pendingSummaryLevel });
+                console.log("EchoNav: Summary level changed to:", pendingSummaryLevel);
+                summaryLevelSelect.value = pendingSummaryLevel;
+                pendingSummaryLevel = null;
+            }
+            hideDialog();
+        });
+        
+        // Dialog cancel button
+        dialogCancel.addEventListener('click', () => {
+            pendingSummaryLevel = null;
+            hideDialog();
+        });
+        
+        // Close dialog when clicking overlay
+        dialogOverlay.addEventListener('click', (e) => {
+            if (e.target === dialogOverlay) {
+                pendingSummaryLevel = null;
+                hideDialog();
+            }
+        });
+        
+        // Helper functions for dialog
+        function showDialog() {
+            dialogOverlay.classList.remove('hidden');
+            dialogConfirm.focus(); // Focus on confirm button for accessibility
+        }
+        
+        function hideDialog() {
+            dialogOverlay.classList.add('hidden');
+        }
 
         // Tab switching functionality
         const tabButtons = document.querySelectorAll('.tab-btn');
@@ -189,7 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentTab === 'timeline') {
                 // Regenerate Timeline outline with fresh Case A/B classification
                 // This clears all DOM markers and cached data, then re-extracts and re-analyzes all conversation turns
-                chrome.runtime.sendMessage({ action: "regenerateOutline" }, (response) => {
+                safeSendMessage({ action: "regenerateOutline" }, (response) => {
                     if (response && response.success) {
                         // Clear the timeline content and start fresh generation
                         const outlineDiv = document.getElementById('outline');
@@ -200,6 +301,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         generateOutline();
                     } else {
                         console.error("Failed to regenerate outline:", response.error);
+                        if (response && response.error) {
+                            showError(response.error);
+                        }
                     }
                 });
             } else if (currentTab === 'logical') {
@@ -214,13 +318,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 generateInsightButton.innerHTML = '<span class="btn-icon">🧠</span> Generating...';
                 logicalContent.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating logical hierarchy...</p></div>';
                 
-                chrome.runtime.sendMessage({ action: "generateInsightHierarchy" }, (response) => {
+                safeSendMessage({ action: "generateInsightHierarchy" }, (response) => {
                     console.log("EchoNav: Insight regeneration response received:", response);
                     
                     generateInsightButton.disabled = false;
                     generateInsightButton.innerHTML = '<span class="btn-icon">🚀</span> Generate Insight';
                     
-                    if (!response || !response.success) {
+                    if (response && response.error) {
+                        logicalContent.innerHTML = `<div class="error-state"><div class="error-icon">⚠️</div><h3>Error</h3><p>${response.error}</p><p class="hint">Try reloading the extension side panel.</p></div>`;
+                    } else if (!response || !response.success) {
                         console.error("EchoNav: Failed to start Insight regeneration");
                         logicalContent.innerHTML = '<div id="insight-welcome" class="welcome-state"><div class="welcome-icon">🧠</div><h2>Generate Insight</h2><p>Create a hierarchical structure from your Timeline to better understand the conversation.</p><button id="generate-logical-button" class="primary-btn"><span class="btn-icon">🚀</span> Generate Insight</button></div>';
                     }
@@ -303,12 +409,12 @@ document.addEventListener('DOMContentLoaded', () => {
             generateInsightButton.innerHTML = '<span class="btn-icon">🧠</span> Generating...';
             logicalContent.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating logical hierarchy...</p></div>';
             
-            chrome.runtime.sendMessage({ action: "generateInsightHierarchy" }, (response) => {
+            safeSendMessage({ action: "generateInsightHierarchy" }, (response) => {
                 generateInsightButton.disabled = false;
                 generateInsightButton.innerHTML = '<span class="btn-icon">🧠</span> Generate Insight';
                 
                 if (response && response.error) {
-                    logicalContent.innerHTML = `<p class="error-text">Error: ${response.error}</p>`;
+                    logicalContent.innerHTML = `<div class="error-state"><div class="error-icon">⚠️</div><h3>Error</h3><p>${response.error}</p><p class="hint">Try reloading the extension side panel.</p></div>`;
                 } else if (response && response.data) {
                     // Clear loading state and display hierarchy
                     logicalContent.innerHTML = '';
@@ -471,9 +577,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update Insight View state
                 updateInsightWelcomeState();
                 
-                // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                // NEW FLOW: Trigger keypoints generation FIRST, then enable outline view
+                // This ensures cards have keypoints when they're first displayed
                 if (currentOutlineItems && currentOutlineItems.length > 0) {
-                    safelyEnableOutlineView(currentOutlineItems, 500); // Shorter delay after streaming completion
+                    console.log("EchoNav: Streaming completed, triggering keypoints generation first");
+                    triggerTimelineKeypointsGeneration(async () => {
+                        // Callback: After keypoints generated, merge them into items, then enable outline view
+                        console.log("EchoNav: All keypoints generated after streaming, merging into items");
+                        await loadAndMergeChatKeyPoints(currentOutlineItems);
+                        console.log("EchoNav: Keypoints merged, now enabling outline view");
+                        safelyEnableOutlineView(currentOutlineItems, 300);
+                    });
                 }
                 
                 // Check for new messages after completion
@@ -491,6 +605,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 checkForNewMessages();
+            } else if (request.action === "timelineKeypointGenerated") {
+                // Handle individual keypoint generation
+                console.log(`EchoNav: Keypoint generated for turn ${request.turnIndex}:`, request.keyPoints);
+                
+                // Verify this update is for the current conversation
+                chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+                    if (tabs && tabs.length > 0) {
+                        const currentUrl = tabs[0].url;
+                        const currentConversationId = currentUrl.match(/\/c\/([a-f0-9-]+)/)?.[1];
+                        
+                        if (currentConversationId === request.conversationId) {
+                            console.log("EchoNav: Keypoint update is for current conversation, applying");
+                            handleKeypointUpdate(request.turnIndex, request.keyPoints, request.messageIndex);
+                        } else {
+                            console.log(`EchoNav: Keypoint update is for different conversation (${request.conversationId}), ignoring`);
+                        }
+                    }
+                });
+            } else if (request.action === "timelineKeypointsCompleted") {
+                console.log("EchoNav: All timeline keypoints generation completed");
+                // Could show a notification or update UI state here
             } else if (request.action === "exitOutlineView") {
                 // Handle exit from outline view mode
                 isOutlineViewMode = false;
@@ -519,62 +654,87 @@ document.addEventListener('DOMContentLoaded', () => {
             newConversationMessage.classList.add('hidden');
             
             // Try to load cached outline first
-            chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+            safeSendMessage({ action: "getCachedOutline" }, (response) => {
+                if (response && response.error) {
+                    showError(response.error);
+                    return;
+                }
                 if (response && response.data && (response.data.summary || response.data.outline)) {
                     console.log("EchoNav: Found cached outline for new conversation");
                     const { summary, outline, items } = response.data;
                     const outlineText = summary || outline;
                     hideError();
                     welcomeMessage.style.display = 'none';
+                    welcomeMessage.classList.add('hidden');
                     fullTextToRead = outlineText;
                     currentOutlineItems = items || [];
                     
                     if (items && items.length > 0) {
-                        const ul = createClickableList(items);
-                        outlineDiv.innerHTML = '';
-                        outlineDiv.appendChild(ul);
-                        updateOutlineLandmark(true);
-                        initializeAccessibilityFeatures();
-                        startPolling();
-                        updateInsightWelcomeState();
-                        
-                        // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
-                        console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 1) with", items.length, "items");
-                        safelyEnableOutlineView(items, 1200); // Longer delay for URL change scenario
+                        // NEW: Merge chatKeyPoints before creating UI
+                        loadAndMergeChatKeyPoints(items).then(() => {
+                            const ul = createClickableList(items);
+                            outlineDiv.innerHTML = '';
+                            outlineDiv.appendChild(ul);
+                            updateOutlineLandmark(true);
+                            initializeAccessibilityFeatures();
+                            startPolling();
+                            updateInsightWelcomeState();
+                            
+                            // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                            console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 1) with", items.length, "items");
+                            safelyEnableOutlineView(items, 1200); // Longer delay for URL change scenario
+                        });
                     }
                 } else {
                     // No cache - this is a new conversation, check if AI has completed
                     console.log("EchoNav: No cache for new conversation, checking if AI has completed");
                     welcomeMessage.style.display = 'none';
+                    welcomeMessage.classList.add('hidden');
                     newConversationMessage.style.display = 'none';
                     newConversationMessage.classList.add('hidden');
-                    outlineDiv.innerHTML = '';
+                    
+                    // Show "Waiting for AI response" state (do NOT show welcome message)
+                    outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Waiting for AI response...</p></div>';
                     updateOutlineLandmark(false);
                     
-                    // Check immediately if AI response is complete
-                    chrome.runtime.sendMessage({ action: "checkNewMessages" }, (response) => {
-                        if (response && (response.hasNewMessages || response.completeTurns > 0)) {
-                            // AI has completed, generate outline now
-                            console.log("EchoNav: AI response detected as complete for new conversation, generating outline");
-                            outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
-                            setTimeout(() => {
-                                generateOutline();
-                            }, 500);
-                        } else if (response && response.pendingTurns > 0) {
-                            // AI still generating, wait and check again
-                            console.log("EchoNav: AI still generating, will check again");
-                            setTimeout(() => {
-                                chrome.runtime.sendMessage({ action: "checkNewMessages" }, (retryResponse) => {
-                                    if (retryResponse && (retryResponse.hasNewMessages || retryResponse.completeTurns > 0)) {
-                                        outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
-                                        setTimeout(() => {
-                                            generateOutline();
-                                        }, 500);
-                                    }
-                                });
-                            }, 2000);
+                    // Poll for AI response completion
+                    let completionCheckAttempts = 0;
+                    const maxCompletionCheckAttempts = 60; // Max 2 minutes (60 * 2 seconds)
+                    
+                    const checkForCompletion = () => {
+                        completionCheckAttempts++;
+                        
+                        if (completionCheckAttempts > maxCompletionCheckAttempts) {
+                            console.warn("EchoNav: AI response check timed out after 2 minutes");
+                            outlineDiv.innerHTML = '<div class="error-state"><p>Timeout waiting for AI response. Please refresh or try generating manually.</p></div>';
+                            return;
                         }
-                    });
+                        
+                        safeSendMessage({ action: "checkNewMessages" }, (response) => {
+                            if (response && response.error) {
+                                showError(response.error);
+                                return;
+                            }
+                            if (response && (response.hasNewMessages || response.completeTurns > 0)) {
+                                // AI has completed, generate outline now
+                                console.log(`EchoNav: AI response detected as complete for new conversation (after ${completionCheckAttempts} checks), generating outline`);
+                                // Keep welcome-message hidden during outline generation
+                                welcomeMessage.style.display = 'none';
+                                welcomeMessage.classList.add('hidden');
+                                outlineDiv.innerHTML = '<div class="loading-state"><div class="spinner"></div><p>Generating outline...</p></div>';
+                                setTimeout(() => {
+                                    generateOutline();
+                                }, 500);
+                            } else {
+                                // AI still generating, check again after delay
+                                console.log(`EchoNav: AI still generating (check #${completionCheckAttempts}), will retry...`);
+                                setTimeout(checkForCompletion, 2000);
+                            }
+                        });
+                    };
+                    
+                    // Start checking immediately
+                    checkForCompletion();
                 }
             });
             
@@ -635,25 +795,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 resetInsightViewForNewURL();
                 
                 // Try to load cached outline for this conversation
-                chrome.runtime.sendMessage({ action: "getCachedOutline" }, (response) => {
+                safeSendMessage({ action: "getCachedOutline" }, (response) => {
+                    if (response && response.error) {
+                        showError(response.error);
+                        return;
+                    }
                     if (response && response.data && (response.data.summary || response.data.outline)) {
                         console.log("EchoNav: Found cached outline for switched conversation");
                         const { summary, outline, items } = response.data;
                         const outlineText = summary || outline;
                         welcomeMessage.style.display = 'none';
+                        welcomeMessage.classList.add('hidden');
                         fullTextToRead = outlineText;
                         currentOutlineItems = items || [];
                         
                         if (items && items.length > 0) {
-                            const ul = createClickableList(items);
-                            outlineDiv.appendChild(ul);
-                            initializeAccessibilityFeatures();
-                            startPolling();
-                            updateInsightWelcomeState();
-                            
-                            // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
-                            console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 3) with", items.length, "items");
-                            safelyEnableOutlineView(items, 1200); // Longer delay for conversation switch
+                            // NEW: Merge chatKeyPoints before creating UI
+                            loadAndMergeChatKeyPoints(items).then(() => {
+                                const ul = createClickableList(items);
+                                outlineDiv.appendChild(ul);
+                                initializeAccessibilityFeatures();
+                                startPolling();
+                                updateInsightWelcomeState();
+                                
+                                // Auto-enable outline view when Timeline has content (EchoNav开启 + Timeline有目录)
+                                console.log("EchoNav: Auto-enabling outline view from cached outline (URL change - Scenario 3) with", items.length, "items");
+                                safelyEnableOutlineView(items, 1200); // Longer delay for conversation switch
+                            });
                         }
                     } else {
                         // No cache for this conversation - show welcome message (user must manually generate)
@@ -687,10 +855,63 @@ document.addEventListener('DOMContentLoaded', () => {
         isNewConversation = false;
     }
 
+    // NEW: Load and merge chatKeyPoints from storage into items
+    async function loadAndMergeChatKeyPoints(items) {
+        try {
+            // Get current conversation ID
+            const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+            if (!tabs || tabs.length === 0) return;
+            
+            const currentUrl = tabs[0].url;
+            const conversationId = currentUrl.match(/\/c\/([a-f0-9-]+)/)?.[1];
+            
+            if (!conversationId) {
+                console.log("EchoNav: No conversation ID, skipping chatKeyPoints merge");
+                return;
+            }
+            
+            console.log(`EchoNav: Loading chatKeyPoints for conversation ${conversationId}`);
+            
+            // Load chatKeyPoints from storage
+            const storageKey = `echonav_keypoints_${conversationId}`;
+            const result = await chrome.storage.local.get([storageKey]);
+            const chatKeyPointsStorage = result[storageKey] || {};
+            
+            console.log("EchoNav: Found chatKeyPoints in storage:", chatKeyPointsStorage);
+            
+            // Merge chatKeyPoints into items
+            let mergedCount = 0;
+            items.forEach((item, index) => {
+                const messageIndex = index.toString();
+                if (chatKeyPointsStorage[messageIndex]) {
+                    // Only update if item doesn't already have chatKeyPoints or if storage has newer data
+                    if (!item.chatKeyPoints || item.chatKeyPoints.length === 0) {
+                        item.chatKeyPoints = chatKeyPointsStorage[messageIndex];
+                        mergedCount++;
+                        console.log(`EchoNav: Merged chatKeyPoints for turn ${index}`);
+                    }
+                }
+            });
+            
+            if (mergedCount > 0) {
+                console.log(`EchoNav: ✅ Merged chatKeyPoints for ${mergedCount} turns`);
+            } else {
+                console.log("EchoNav: No new chatKeyPoints to merge");
+            }
+            
+        } catch (error) {
+            console.error("EchoNav: Error loading chatKeyPoints:", error);
+        }
+    }
+
     // Check for cached outline when sidepanel loads
     async function loadCachedOutline() {
-        chrome.runtime.sendMessage({ action: "getCachedOutline" }, async (response) => {
+        safeSendMessage({ action: "getCachedOutline" }, async (response) => {
             console.log("EchoNav: Cache response:", response);
+            if (response && response.error) {
+                showError(response.error);
+                return;
+            }
             if (response && response.data && (response.data.summary || response.data.outline)) {
                 console.log("EchoNav: Found cached outline, loading it");
                 const { summary, outline, items } = response.data;
@@ -703,6 +924,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 currentOutlineItems = items || [];
                 
                 if (items && items.length > 0) {
+                    // NEW: Load and merge any chatKeyPoints generated in the background
+                    await loadAndMergeChatKeyPoints(items);
+                    
                     const ul = createClickableList(items);
                     outlineDiv.innerHTML = '';
                     outlineDiv.appendChild(ul);
@@ -750,10 +974,15 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        chrome.runtime.sendMessage({ action: "checkNewMessages" }, (response) => {
+        safeSendMessage({ action: "checkNewMessages" }, (response) => {
             // Handle potential undefined response or runtime errors
             if (!response) {
                 console.log("EchoNav: No response from checkNewMessages, skipping check");
+                return;
+            }
+            
+            if (response.error) {
+                console.error("EchoNav: Error checking new messages:", response.error);
                 return;
             }
             
@@ -767,6 +996,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (autoUpdateToggle.checked) {
                     console.log("EchoNav: New messages detected, triggering update");
                     updateOutline();
+                } else {
+                    // Auto-update is disabled, show notification instead
+                    console.log("EchoNav: New messages detected, showing update notification");
+                    pendingNewMessageCount = response.newMessageCount || 1;
+                    updateCountSpan.textContent = pendingNewMessageCount;
+                    updateNotification.classList.remove('hidden');
                 }
             } else if (response.pendingTurns > 0) {
                 // AI is still generating, check again soon
@@ -879,6 +1114,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const isNew = await checkIfNewConversation();
         isNewConversation = isNew;
         
+        // Check if we're already in a loading state - don't override it
+        const isLoading = outlineDiv.querySelector('.loading-state') !== null;
+        if (isLoading) {
+            console.log("EchoNav: updateWelcomeState skipped - already in loading state");
+            return;
+        }
+        
+        // Check if outline already exists - don't show welcome message
+        if (currentOutlineItems && currentOutlineItems.length > 0) {
+            console.log("EchoNav: updateWelcomeState skipped - outline already exists");
+            return;
+        }
+        
         if (isNew) {
             // Show new conversation message
             welcomeMessage.style.display = 'none';
@@ -927,8 +1175,8 @@ document.addEventListener('DOMContentLoaded', () => {
         isUpdatingOutline = true;
         console.log("EchoNav: Starting outline update (flag set)");
         
-        chrome.runtime.sendMessage({ action: "updateOutline" }, (response) => {
-            if (response.error) {
+        safeSendMessage({ action: "updateOutline" }, (response) => {
+            if (response && response.error) {
                 // Only show error for non-retryable errors
                 showError(response.error);
                 updateOutlineRetryCount = 0; // Reset retry count
@@ -1128,7 +1376,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update Insight View state based on current data
         function updateInsightViewState() {
-            chrome.runtime.sendMessage({ action: "getInsightHierarchy" }, (response) => {
+            safeSendMessage({ action: "getInsightHierarchy" }, (response) => {
+                if (response && response.error) {
+                    console.error("EchoNav: Error getting insight hierarchy:", response.error);
+                    // Show welcome state on error
+                    insightWelcome.style.display = 'block';
+                    updateInsightWelcomeState();
+                    return;
+                }
+                
                 const hasTimelineData = currentOutlineItems.length > 0;
                 const hasInsightData = response && response.data && response.data.length > 0;
                 
@@ -1269,7 +1525,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         item.addEventListener('click', () => {
                             const best = findBestTraceabilityMatch({ traceability: row.traceability, isMerged: row.isMerged });
                             if (best) {
-                                console.log(`EchoNav: Navigating to ${best.itemType} item:`, best.originalText);
+                                console.log(`EchoNav: Navigating to ${best.itemType} item:`, best.itemText || best.originalText);
                                 
                                 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                                     let navigationMessage;
@@ -1277,22 +1533,25 @@ document.addEventListener('DOMContentLoaded', () => {
                                     // Choose navigation method based on item type
                                     if (best.itemType === 'heading' && best.headingId) {
                                         // Use precise heading navigation
+                                        // For headings, use itemText (actual heading text) instead of originalText
                                         navigationMessage = {
                                             action: 'scrollToHeading',
                                             headingId: best.headingId,
-                                            headingText: best.originalText,
+                                            headingText: best.itemText || best.originalText,
                                             accessibilityMode: true // Enable focus for better UX
                                         };
                                     } else if (best.itemType === 'theme' && best.paragraphIds && best.paragraphIds.length > 0) {
                                         // Navigate to first paragraph of theme
+                                        // For themes, use itemText (theme name) for display
                                         navigationMessage = {
                                             action: 'scrollToParagraph',
                                             paragraphId: best.paragraphIds[0],
-                                            paragraphText: best.originalText,
+                                            paragraphText: best.itemText || best.originalText,
                                             accessibilityMode: true
                                         };
                                     } else {
                                         // Fallback to general content navigation
+                                        // For turntitle and keypoints, use originalText (user question/matched sentence)
                                         navigationMessage = {
                                             action: 'scrollToSpecificContent',
                                             originalText: best.originalText,
@@ -1375,15 +1634,35 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Try to find the best match for this specific bullet point
                     const bestTrace = findBestTraceabilityMatch(node);
                     if (bestTrace) {
-                        console.log("EchoNav: Clicking to scroll to specific bullet point:", bestTrace.match?.sentence?.substring(0, 50) || bestTrace.originalText?.substring(0, 50));
+                        console.log("EchoNav: Clicking to scroll to specific bullet point:", bestTrace.itemText || bestTrace.match?.sentence?.substring(0, 50) || bestTrace.originalText?.substring(0, 50));
                         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                            // Send both the original text and the matched sentence for more precise navigation
-                            chrome.tabs.sendMessage(tabs[0].id, { 
-                                action: 'scrollToSpecificContent', 
-                                originalText: bestTrace.originalText,
-                                matchedSentence: bestTrace.match?.sentence,
-                                assistantUniqueId: bestTrace.assistantUniqueId
-                            });
+                            let navigationMessage;
+                            
+                            // Choose navigation method based on item type (same logic as new UI)
+                            if (bestTrace.itemType === 'heading' && bestTrace.headingId) {
+                                navigationMessage = {
+                                    action: 'scrollToHeading',
+                                    headingId: bestTrace.headingId,
+                                    headingText: bestTrace.itemText || bestTrace.originalText,
+                                    accessibilityMode: true
+                                };
+                            } else if (bestTrace.itemType === 'theme' && bestTrace.paragraphIds && bestTrace.paragraphIds.length > 0) {
+                                navigationMessage = {
+                                    action: 'scrollToParagraph',
+                                    paragraphId: bestTrace.paragraphIds[0],
+                                    paragraphText: bestTrace.itemText || bestTrace.originalText,
+                                    accessibilityMode: true
+                                };
+                            } else {
+                                navigationMessage = {
+                                    action: 'scrollToSpecificContent',
+                                    originalText: bestTrace.originalText,
+                                    matchedSentence: bestTrace.match?.sentence,
+                                    assistantUniqueId: bestTrace.assistantUniqueId
+                                };
+                            }
+                            
+                            chrome.tabs.sendMessage(tabs[0].id, navigationMessage);
                         });
                     }
                 });
@@ -1436,13 +1715,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function generateOutline() {
       // 添加一个延时，确保页面和content script都已加载
       setTimeout(() => {
-        chrome.runtime.sendMessage({ action: "summarize" }, (response) => {
-          if (chrome.runtime.lastError) {
-            showError("Connection error. Please make sure you're on a conversation page and try again.");
-            return;
-          }
-
-          if (response.error) {
+        safeSendMessage({ action: "summarize" }, (response) => {
+          if (response && response.error) {
             showError(response.error);
             return;
           }
@@ -1450,6 +1724,10 @@ document.addEventListener('DOMContentLoaded', () => {
           if (response.data && response.data.summary) {
             const { summary, items } = response.data;
             hideError();
+            welcomeMessage.style.display = 'none';
+            welcomeMessage.classList.add('hidden');
+            newConversationMessage.style.display = 'none';
+            newConversationMessage.classList.add('hidden');
             fullTextToRead = summary;
             currentOutlineItems = items;
             const ul = createClickableList(items);
@@ -1465,6 +1743,19 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Update Insight View state when Timeline data changes
             updateInsightWelcomeState();
+            
+            // NEW FLOW: Trigger keypoints generation FIRST, then enable outline view
+            // This ensures cards have keypoints when they're first displayed
+            if (items && items.length > 0) {
+                console.log("EchoNav: Triggering keypoints generation first, then will enable outline view");
+                triggerTimelineKeypointsGeneration(async () => {
+                    // Callback: After keypoints generated, merge them into items, then enable outline view
+                    console.log("EchoNav: All keypoints generated, merging into items");
+                    await loadAndMergeChatKeyPoints(items);
+                    console.log("EchoNav: Keypoints merged, now enabling outline view");
+                    safelyEnableOutlineView(items, 300);
+                });
+            }
           } else {
             showError("Could not find a conversation to summarize. Please make sure you're on a conversation page.");
           }
@@ -1472,6 +1763,102 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 1000); // 等待1秒确保content script已加载
     }
 
+    // NEW: Trigger async timeline keypoints generation with callback support
+    function triggerTimelineKeypointsGeneration(onComplete) {
+        console.log("EchoNav: Triggering async timeline keypoints generation");
+        
+        if (!currentOutlineItems || currentOutlineItems.length === 0) {
+            console.warn("EchoNav: No outline items to generate keypoints for");
+            if (onComplete) onComplete();
+            return;
+        }
+        
+        // Get conversation ID from current URL
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+            if (!tabs || tabs.length === 0) {
+                console.warn("EchoNav: No active tab found");
+                if (onComplete) onComplete();
+                return;
+            }
+            
+            const currentUrl = tabs[0].url;
+            const conversationId = currentUrl.match(/\/c\/([a-f0-9-]+)/)?.[1];
+            
+            if (!conversationId) {
+                console.warn("EchoNav: No conversation ID found in URL");
+                if (onComplete) onComplete();
+                return;
+            }
+            
+            // Prepare turns data for keypoints generation
+            const turns = currentOutlineItems.map((item, index) => ({
+                messageIndex: index,
+                user: item.originalText || '',
+                assistant: item.assistantText || ''
+            }));
+            
+            console.log(`EchoNav: Sending request to generate keypoints for ${turns.length} turns`);
+            
+            // Set up completion listener if callback is provided
+            let completionListener = null;
+            if (onComplete) {
+                completionListener = (request) => {
+                    if (request.action === "timelineKeypointsCompleted" && 
+                        request.conversationId === conversationId) {
+                        console.log("EchoNav: Received completion notification for keypoints generation");
+                        chrome.runtime.onMessage.removeListener(completionListener);
+                        onComplete();
+                    }
+                };
+                chrome.runtime.onMessage.addListener(completionListener);
+            }
+            
+            // Send request to background.js to generate keypoints asynchronously
+            chrome.runtime.sendMessage({
+                action: "generateTimelineKeypoints",
+                conversationId: conversationId,
+                turns: turns
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    console.error("EchoNav: Error sending keypoints generation request:", chrome.runtime.lastError);
+                    if (completionListener) {
+                        chrome.runtime.onMessage.removeListener(completionListener);
+                    }
+                    if (onComplete) onComplete(); // Call anyway to avoid hanging
+                    return;
+                }
+                
+                if (response && response.success) {
+                    console.log("EchoNav: Timeline keypoints generation request accepted");
+                } else if (response && response.error) {
+                    console.error("EchoNav: Timeline keypoints generation request failed:", response.error);
+                    if (completionListener) {
+                        chrome.runtime.onMessage.removeListener(completionListener);
+                    }
+                    if (onComplete) onComplete(); // Call anyway to avoid hanging
+                }
+            });
+        });
+    }
+
+    // NEW: Handle keypoint update for a specific turn
+    function handleKeypointUpdate(turnIndex, keyPoints, messageIndex) {
+        console.log(`EchoNav: Handling keypoint update for turn ${turnIndex}`);
+        
+        // Update the item in currentOutlineItems (for caching purposes)
+        if (turnIndex < currentOutlineItems.length) {
+            currentOutlineItems[turnIndex].chatKeyPoints = keyPoints;
+            console.log(`EchoNav: Updated chatKeyPoints for turn ${turnIndex} in memory`);
+            
+            // NOTE: Sidepanel does NOT display keypoints, so no need to re-render the timeline
+            // The keypoints are only displayed in the ChatGPT page's outline headers
+            // Content.js will receive the update directly from background.js and handle the UI update
+            
+            console.log(`EchoNav: ✅ Keypoints data updated for turn ${turnIndex} (no UI update needed in sidepanel)`);
+        } else {
+            console.warn(`EchoNav: Turn index ${turnIndex} out of bounds`);
+        }
+    }
 
     // Handle read outline functionality
     function handleReadOutline() {

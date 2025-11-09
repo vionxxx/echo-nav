@@ -20,7 +20,16 @@
         <!-- Content Areas -->
         <div class="content-container" role="presentation">
             <!-- Timeline Tab -->
-            <section id="timeline-tab" class="tab-panel active" role="tabpanel" aria-labelledby="flow-tab-label">
+            <section id="timeline-tab" class="tab-panel active" role="tabpanel" aria-label="Timeline View">
+                <!-- Update notification for auto-update disabled -->
+                <div id="update-notification" class="update-notification hidden">
+                    <div class="update-notification-content">
+                        <span class="update-icon" aria-hidden="true">🔔</span>
+                        <span class="update-text">Detected <span id="update-count">0</span> new conversation rounds</span>
+                        <button id="manual-update-btn" class="update-btn">Update</button>
+                    </div>
+                </div>
+                
                 <!-- Welcome message for new conversations (no turns yet) -->
                 <div id="new-conversation-message" class="welcome-state hidden">
                     <div class="welcome-icon" aria-hidden="true">💬</div>
@@ -79,29 +88,49 @@
                 <div class="panel-content">
                     <div class="setting-group">
                         <h3>General</h3>
-                        <div class="setting-item">
-                            <span class="setting-label">Auto-update</span>
-                            <span class="setting-description" id="auto-update-desc">Automatically update when new messages are detected</span>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="auto-update-toggle" checked aria-describedby="auto-update-desc">
-                                <span class="switch-slider" aria-hidden="true"></span>
-                            </label>
+                        
+                        <div class="setting-subsection">
+                            <div class="setting-subsection-header">Auto-update</div>
+                            <div class="setting-item">
+                                <span class="setting-description" id="auto-update-desc">Automatically update when new responses are detected</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="auto-update-toggle" checked aria-describedby="auto-update-desc">
+                                    <span class="switch-slider" aria-hidden="true"></span>
+                                </label>
+                            </div>
                         </div>
-                        <div class="setting-item">
-                            <span class="setting-label">Show keypoints</span>
-                            <span class="setting-description" id="keypoints-desc">Display keypoints in conversation and fullscreen mode</span>
-                            <label class="toggle-switch">
-                                <input type="checkbox" id="show-keypoints-toggle" checked aria-describedby="keypoints-desc">
-                                <span class="switch-slider" aria-hidden="true"></span>
-                            </label>
+                        
+                        <div class="setting-subsection">
+                            <div class="setting-subsection-header">Show keypoints</div>
+                            <div class="setting-item">
+                                <span class="setting-description" id="keypoints-desc">Show summarized keypoints before every round of AI response</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="show-keypoints-toggle" checked aria-describedby="keypoints-desc">
+                                    <span class="switch-slider" aria-hidden="true"></span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-subsection">
+                            <div class="setting-subsection-header">Summary detail level</div>
+                            <div class="setting-item">
+                                <span class="setting-description" id="summary-level-desc">Number of keypoints per response</span>
+                                <select id="summary-level-select" class="setting-select" aria-describedby="summary-level-desc">
+                                    <option value="short">3 keypoints</option>
+                                    <option value="medium">5 keypoints</option>
+                                    <option value="long">7 keypoints</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                     
                     <div class="setting-group">
                         <h3>About</h3>
-                        <div class="setting-item">
-                            <span class="setting-label">EchoNav Extension</span>
-                            <span class="setting-description">Version 1.0.0</span>
+                        <div class="setting-item about-item">
+                            <div class="about-content">
+                                <span class="setting-label">EchoNav Extension</span>
+                                <span class="setting-description">Version 1.0.0</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -154,6 +183,18 @@
          aria-live="polite" 
          aria-atomic="true"
          style="position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;">
+    </div>
+
+    <!-- Confirmation Dialog -->
+    <div id="confirm-dialog-overlay" class="dialog-overlay hidden">
+        <div class="dialog-box" role="dialog" aria-labelledby="dialog-title" aria-describedby="dialog-desc">
+            <h3 id="dialog-title">Change Summary Level?</h3>
+            <p id="dialog-desc">This change will only apply to newly generated timelines after this modification.</p>
+            <div class="dialog-buttons">
+                <button id="dialog-cancel" class="secondary-btn">Cancel</button>
+                <button id="dialog-confirm" class="primary-btn">Confirm</button>
+            </div>
+        </div>
     </div>
 
     <script src="sidepanel.js"></script>

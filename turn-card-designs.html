@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EchoNav 轮次卡片设计方案</title>
+    <style>
+        /* Import EchoNav Design System */
+        :root {
+            /* Colors */
+            --primary-color: #2563eb;
+            --primary-hover: #1d4ed8;
+            --secondary-color: #64748b;
+            --success-color: #059669;
+            --warning-color: #d97706;
+            
+            /* Neutral Colors */
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --bg-tertiary: #f1f5f9;
+            --border-color: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            
+            /* Spacing */
+            --space-xs: 0.25rem;
+            --space-sm: 0.5rem;
+            --space-md: 1rem;
+            --space-lg: 1.5rem;
+            --space-xl: 2rem;
+            
+            /* Typography */
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.25rem;
+            
+            /* Border Radius */
+            --radius-sm: 0.375rem;
+            --radius-md: 0.5rem;
+            --radius-lg: 0.75rem;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+            --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            
+            /* Transitions */
+            --transition-fast: 150ms ease-in-out;
+            --transition-normal: 250ms ease-in-out;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: var(--space-xl);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+            -webkit-font-smoothing: antialiased;
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+        
+        /* Dark Mode Styles */
+        body.dark-mode {
+            background: #212121;
+        }
+        
+        body.dark-mode .page-header {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        body.dark-mode .design-section {
+            background: #2d2d2d;
+            color: #e0e0e0;
+        }
+        
+        body.dark-mode .section-title {
+            color: #ffffff;
+        }
+        
+        body.dark-mode .section-description {
+            color: #b0b0b0;
+        }
+        
+        body.dark-mode .turn-card-minimal {
+            background: #353535;
+            border-color: #4a4a4a;
+        }
+        
+        body.dark-mode .minimal-header {
+            background: #2d2d2d;
+        }
+        
+        body.dark-mode .minimal-header:hover {
+            background: #353535;
+        }
+        
+        body.dark-mode .minimal-title {
+            color: #ffffff;
+        }
+        
+        body.dark-mode .minimal-keypoint {
+            color: #e0e0e0;
+        }
+        
+        body.dark-mode h3 {
+            color: #ffffff;
+        }
+        
+        body.dark-mode .minimal-expand {
+            background: #353535;
+            border-color: #4a4a4a;
+            color: #b0b0b0;
+        }
+        
+        body.dark-mode .minimal-expand.expanded {
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        
+        body.dark-mode .detailed-content {
+            color: #b0b0b0;
+        }
+        
+        body.dark-mode .detailed-content.expanded {
+            border-top-color: #4a4a4a;
+        }
+        
+        body.dark-mode .detailed-content h4 {
+            color: #ffffff;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .page-header {
+            text-align: center;
+            color: white;
+            margin-bottom: var(--space-xl);
+            padding: var(--space-xl);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: var(--radius-lg);
+            backdrop-filter: blur(10px);
+            position: relative;
+        }
+        
+        .page-header h1 {
+            font-size: 2rem;
+            margin: 0 0 var(--space-sm) 0;
+            font-weight: 600;
+        }
+        
+        .page-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        /* Theme Toggle Button */
+        .theme-toggle {
+            position: absolute;
+            top: var(--space-lg);
+            right: var(--space-lg);
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 24px;
+            padding: var(--space-sm) var(--space-lg);
+            color: white;
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            gap: var(--space-sm);
+        }
+        
+        .theme-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.05);
+        }
+        
+        .theme-toggle:active {
+            transform: scale(0.98);
+        }
+        
+        .theme-icon {
+            font-size: var(--font-size-lg);
+        }
+        
+        .design-section {
+            margin-bottom: var(--space-xl);
+            background: white;
+            padding: var(--space-xl);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .section-title {
+            font-size: var(--font-size-xl);
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0 0 var(--space-sm) 0;
+        }
+        
+        .section-description {
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            margin: 0 0 var(--space-lg) 0;
+            line-height: 1.6;
+        }
+        
+        /* Design 1: Classic Card with Left Accent */
+        .turn-card-classic {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--primary-color);
+            border-radius: var(--radius-md);
+            padding: var(--space-lg);
+            margin-bottom: var(--space-lg);
+            transition: all var(--transition-normal);
+            cursor: pointer;
+        }
+        
+        .turn-card-classic:hover {
+            border-left-color: var(--primary-hover);
+            box-shadow: var(--shadow-md);
+            transform: translateX(4px);
+        }
+        
+        .turn-header {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            margin-bottom: var(--space-md);
+        }
+        
+        .turn-number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 50%;
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            flex-shrink: 0;
+        }
+        
+        .turn-title {
+            flex: 1;
+            font-size: var(--font-size-base);
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.4;
+        }
+        
+        .keypoints-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-sm);
+            padding-left: calc(32px + var(--space-md));
+        }
+        
+        .keypoint-item {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-sm);
+            font-size: var(--font-size-sm);
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        
+        .keypoint-bullet {
+            color: var(--primary-color);
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        
+        .detailed-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease-out, opacity 0.3s ease-out;
+            opacity: 0;
+            line-height: 1.8;
+            color: var(--text-secondary);
+            font-size: var(--font-size-sm);
+            padding-top: 0;
+            border-top: 1px solid transparent;
+        }
+        
+        .detailed-content.expanded {
+            max-height: 2000px;
+            opacity: 1;
+            padding-top: var(--space-lg);
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .detailed-content h4 {
+            color: var(--text-primary);
+            font-size: var(--font-size-base);
+            font-weight: 600;
+            margin: 0 0 var(--space-md) 0;
+        }
+        
+        .detailed-content p {
+            margin: 0 0 var(--space-md) 0;
+        }
+        
+        .detailed-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Turn Card Design */
+        .turn-card-minimal {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-lg);
+            transition: all var(--transition-normal);
+            overflow: hidden;
+        }
+        
+        .turn-card-minimal:hover {
+            border-color: var(--primary-color);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .minimal-header {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+            cursor: pointer;
+            user-select: none;
+            padding: var(--space-lg);
+            background: var(--bg-secondary);
+            transition: background var(--transition-fast);
+        }
+        
+        .minimal-header:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .minimal-badge {
+            background: var(--primary-color);
+            color: white;
+            font-size: var(--font-size-base);
+            font-weight: 700;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .minimal-content {
+            flex: 1;
+            min-width: 0;
+        }
+        
+        .minimal-title-wrapper {
+            display: flex;
+            align-items: center;
+            gap: var(--space-md);
+        }
+        
+        .minimal-title {
+            font-size: var(--font-size-lg);
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+            line-height: 1.5;
+            flex: 1;
+        }
+        
+        .minimal-expand {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 20px;
+            transition: all var(--transition-normal);
+            border-radius: 50%;
+            background: white;
+            border: 2px solid var(--border-color);
+        }
+        
+        .minimal-expand.expanded {
+            transform: rotate(180deg);
+            background: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+        }
+        
+        .minimal-body {
+            padding: var(--space-lg);
+        }
+        
+        .minimal-keypoints {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-md);
+            margin-bottom: 0;
+            transition: margin-bottom var(--transition-normal);
+        }
+        
+        .minimal-keypoints.has-expanded {
+            margin-bottom: var(--space-lg);
+        }
+        
+        .minimal-keypoint {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--space-sm);
+            font-size: var(--font-size-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        .minimal-icon {
+            color: var(--primary-color);
+            font-size: var(--font-size-lg);
+            flex-shrink: 0;
+            line-height: 1.6;
+        }
+        
+        /* GPT Conversation Container Styles */
+        .gpt-conversation-container {
+            position: relative;
+        }
+        
+        .gpt-message {
+            display: flex;
+            gap: var(--space-md);
+            padding: var(--space-lg);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            margin-bottom: var(--space-lg);
+            transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), 
+                        opacity 0.4s ease-out;
+        }
+        
+        .gpt-message.push-down {
+            transform: translateY(0);
+        }
+        
+        .gpt-avatar {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--font-size-xl);
+            flex-shrink: 0;
+        }
+        
+        .gpt-content {
+            flex: 1;
+            line-height: 1.8;
+            color: var(--text-secondary);
+        }
+        
+        .gpt-content p {
+            margin: 0 0 var(--space-md) 0;
+        }
+        
+        .gpt-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        /* Animation Controls */
+        .animation-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--space-md);
+            margin-bottom: var(--space-xl);
+        }
+        
+        .demo-btn {
+            flex: 1;
+            min-width: 140px;
+            padding: var(--space-md) var(--space-lg);
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            font-size: var(--font-size-sm);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all var(--transition-normal);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--space-sm);
+        }
+        
+        .demo-btn:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+        
+        .demo-btn:active {
+            transform: translateY(0);
+        }
+        
+        .demo-btn.reset-btn {
+            background: var(--secondary-color);
+        }
+        
+        .demo-btn.reset-btn:hover {
+            background: #475569;
+        }
+        
+        .btn-icon {
+            font-size: var(--font-size-lg);
+        }
+        
+        /* Card Animation Container */
+        .card-animation-container {
+            position: relative;
+            overflow: visible;
+            margin-bottom: 0;
+        }
+        
+        /* Animation 1: Slide Split - 左右分离插入 */
+        @keyframes slideSplit {
+            0% {
+                opacity: 0;
+                transform: scaleX(0);
+                max-height: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+            }
+            50% {
+                opacity: 1;
+                transform: scaleX(1);
+                max-height: 0;
+            }
+            100% {
+                opacity: 1;
+                transform: scaleX(1);
+                max-height: 500px;
+                margin-top: 0;
+                margin-bottom: var(--space-lg);
+            }
+        }
+        
+        .turn-card-minimal.anim-slide-split {
+            animation: slideSplit 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transform-origin: center center;
+        }
+        
+        /* Animation 2: Push Split - 向下推开 */
+        @keyframes pushSplit {
+            0% {
+                opacity: 0;
+                max-height: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+                transform: translateY(-20px);
+            }
+            60% {
+                opacity: 1;
+                max-height: 500px;
+                transform: translateY(5px);
+            }
+            100% {
+                opacity: 1;
+                max-height: 500px;
+                margin-top: 0;
+                margin-bottom: var(--space-lg);
+                transform: translateY(0);
+            }
+        }
+        
+        .turn-card-minimal.anim-push-split {
+            animation: pushSplit 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        
+        /* Animation 3: Scale Split - 缩放分离 */
+        @keyframes scaleSplit {
+            0% {
+                opacity: 0;
+                transform: scale(0.3);
+                max-height: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.05);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+                max-height: 500px;
+                margin-top: 0;
+                margin-bottom: var(--space-lg);
+            }
+        }
+        
+        .turn-card-minimal.anim-scale-split {
+            animation: scaleSplit 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        /* Animation 4: Fade Split - 渐显推入 */
+        @keyframes fadeSplit {
+            0% {
+                opacity: 0;
+                max-height: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+                filter: blur(10px);
+            }
+            100% {
+                opacity: 1;
+                max-height: 500px;
+                margin-top: 0;
+                margin-bottom: var(--space-lg);
+                filter: blur(0);
+            }
+        }
+        
+        .turn-card-minimal.anim-fade-split {
+            animation: fadeSplit 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        /* Animation 5: Accordion - 手风琴展开 */
+        @keyframes accordion {
+            0% {
+                opacity: 0;
+                max-height: 0;
+                margin-top: 0;
+                margin-bottom: 0;
+                transform: scaleY(0);
+                transform-origin: top center;
+            }
+            60% {
+                opacity: 1;
+                transform: scaleY(1.03);
+            }
+            100% {
+                opacity: 1;
+                max-height: 500px;
+                margin-top: 0;
+                margin-bottom: var(--space-lg);
+                transform: scaleY(1);
+            }
+        }
+        
+        .turn-card-minimal.anim-accordion {
+            animation: accordion 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        /* Highlight Effect for GPT Message */
+        .gpt-message.highlight-before {
+            animation: highlightPulseBefore 0.6s ease-out;
+        }
+        
+        .gpt-message.highlight-after {
+            animation: highlightPulseAfter 0.6s ease-out;
+        }
+        
+        @keyframes highlightPulseBefore {
+            0%, 100% {
+                background: var(--bg-secondary);
+            }
+            50% {
+                background: #e0e7ff;
+                box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            }
+        }
+        
+        @keyframes highlightPulseAfter {
+            0%, 100% {
+                background: var(--bg-secondary);
+            }
+            50% {
+                background: #fef3c7;
+                box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+            }
+        }
+        
+        body.dark-mode .gpt-message {
+            background: #353535;
+        }
+        
+        body.dark-mode .gpt-content {
+            color: #b0b0b0;
+        }
+        
+        body.dark-mode .demo-btn {
+            background: var(--primary-color);
+        }
+        
+        body.dark-mode .demo-btn:hover {
+            background: var(--primary-hover);
+        }
+        
+        body.dark-mode .demo-btn.reset-btn {
+            background: #4a4a4a;
+        }
+        
+        body.dark-mode .demo-btn.reset-btn:hover {
+            background: #5a5a5a;
+        }
+        
+        @keyframes highlightPulseBeforeDark {
+            0%, 100% {
+                background: #353535;
+            }
+            50% {
+                background: #4a4a6a;
+                box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+            }
+        }
+        
+        @keyframes highlightPulseAfterDark {
+            0%, 100% {
+                background: #353535;
+            }
+            50% {
+                background: #5a4a3a;
+                box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+            }
+        }
+        
+        body.dark-mode .gpt-message.highlight-before {
+            animation: highlightPulseBeforeDark 0.6s ease-out;
+        }
+        
+        body.dark-mode .gpt-message.highlight-after {
+            animation: highlightPulseAfterDark 0.6s ease-out;
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="page-header">
+            <button class="theme-toggle" id="themeToggle">
+                <span class="theme-icon" id="themeIcon">🌙</span>
+                <span id="themeText">Dark</span>
+            </button>
+            <h1>🎬 EchoNav 轮次卡片动画演示</h1>
+            <p>探索从GPT文本中推出卡片的各种动画效果</p>
+        </div>
+        
+        <!-- Animation Demos Section -->
+        <div class="design-section">
+            <h2 class="section-title">轮次卡片插入动画效果演示</h2>
+            <p class="section-description">点击按钮查看不同的动画效果，卡片会插入在两段文本之间，模拟真实的对话场景</p>
+            
+            <!-- Animation Demo Buttons -->
+            <div class="animation-controls">
+                <button class="demo-btn" onclick="showAnimation('slide-split')">
+                    <span class="btn-icon">↔️</span>
+                    左右分离插入
+                </button>
+                <button class="demo-btn" onclick="showAnimation('push-split')">
+                    <span class="btn-icon">⬇️</span>
+                    向下推开
+                </button>
+                <button class="demo-btn" onclick="showAnimation('scale-split')">
+                    <span class="btn-icon">🎯</span>
+                    缩放分离
+                </button>
+                <button class="demo-btn" onclick="showAnimation('fade-split')">
+                    <span class="btn-icon">✨</span>
+                    渐显推入
+                </button>
+                <button class="demo-btn" onclick="showAnimation('accordion')">
+                    <span class="btn-icon">📄</span>
+                    手风琴展开
+                </button>
+                <button class="demo-btn reset-btn" onclick="resetAnimation()">
+                    <span class="btn-icon">🔄</span>
+                    重置
+                </button>
+            </div>
+            
+            <!-- GPT Conversation Simulation Container -->
+            <div class="gpt-conversation-container">
+                <div class="gpt-message" id="textBefore">
+                    <div class="gpt-avatar">🤖</div>
+                    <div class="gpt-content">
+                        <p>Earth Art, also known as Land Art, emerged in the late 1960s and early 1970s as a radical departure from the traditional art world. Artists sought to break free from the confines of galleries and museums, creating monumental works directly in natural landscapes using materials found on site—rocks, soil, water, and vegetation.</p>
+                        <p>Notable works include Robert Smithson's "Spiral Jetty" (1970), a massive spiral of rocks and earth extending into the Great Salt Lake in Utah, and Christo and Jeanne-Claude's large-scale environmental installations.</p>
+                    </div>
+                </div>
+                
+                <!-- Card Container - will be inserted between texts -->
+                <div id="cardContainer" class="card-animation-container">
+                    <!-- Card will be inserted here with animation -->
+                </div>
+                
+                <div class="gpt-message" id="textAfter">
+                    <div class="gpt-avatar">🤖</div>
+                    <div class="gpt-content">
+                        <p>The movement was deeply influenced by the environmental consciousness of the 1960s and 1970s. Many Earth Art works address ecological concerns, highlighting the fragility of natural ecosystems and the impact of human intervention.</p>
+                        <p>Today, Earth Art's legacy continues through contemporary eco-art and environmental installations. Artists worldwide draw inspiration from its principles, using their work to raise awareness about climate change and environmental stewardship.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Static Example Card -->
+        <div class="design-section">
+            <h2 class="section-title">静态卡片示例</h2>
+            <p class="section-description">这是最终卡片的样式，无动画效果</p>
+            
+            <div class="turn-card-minimal">
+                <div class="minimal-header" onclick="toggleMinimalCard(this)">
+                    <div class="minimal-badge">1</div>
+                    <div class="minimal-content">
+                        <div class="minimal-title-wrapper">
+                            <h3 class="minimal-title">Earth Art: Art Created Directly Within Natural Landscapes</h3>
+                            <div class="minimal-expand">▼</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="minimal-body">
+                    <div class="minimal-keypoints">
+                        <div class="minimal-keypoint">
+                            <span class="minimal-icon">▸</span>
+                            <span>Earth Art, also known as Land Art, emerged in the late 1960s and early 1970s, utilizing natural materials and existing within landscapes.</span>
+                        </div>
+                        <div class="minimal-keypoint">
+                            <span class="minimal-icon">▸</span>
+                            <span>Artists created site-specific artworks to break away from traditional gallery settings and challenge viewers' relationship with nature.</span>
+                        </div>
+                        <div class="minimal-keypoint">
+                            <span class="minimal-icon">▸</span>
+                            <span>The movement often addresses environmental concerns and emphasizes the impermanence of human intervention, influencing contemporary eco-art and installations.</span>
+                        </div>
+                    </div>
+                    <div class="detailed-content">
+                        <h4>Detailed Information</h4>
+                        <p>Earth Art, also known as Land Art, emerged in the late 1960s and early 1970s as a radical departure from the traditional art world. Artists sought to break free from the confines of galleries and museums, creating monumental works directly in natural landscapes using materials found on site—rocks, soil, water, and vegetation.</p>
+                        <p>Notable works include Robert Smithson's "Spiral Jetty" (1970), a massive spiral of rocks and earth extending into the Great Salt Lake in Utah, and Christo and Jeanne-Claude's large-scale environmental installations. These artists transformed vast stretches of land into living artworks, challenging viewers to reconsider their relationship with nature and space.</p>
+                        <p>The movement was deeply influenced by the environmental consciousness of the 1960s and 1970s. Many Earth Art works address ecological concerns, highlighting the fragility of natural ecosystems and the impact of human intervention. Unlike traditional art that seeks permanence, Earth Art embraces impermanence—works are subject to erosion, weathering, and natural decay, embodying the transient nature of all things.</p>
+                        <p>Today, Earth Art's legacy continues through contemporary eco-art and environmental installations. Artists worldwide draw inspiration from its principles, using their work to raise awareness about climate change, habitat destruction, and the urgent need for environmental stewardship. The movement demonstrated that art could exist beyond museum walls, engaging directly with the land and inspiring new ways of thinking about our place in the natural world.</p>
+                    </div>
+                </div>
+            </div>
+        </div>        
+    </div>
+    
+    <script>
+        // Theme Toggle Functionality
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const themeText = document.getElementById('themeText');
+        const body = document.body;
+        
+        // Check for saved theme preference or default to 'light'
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        if (currentTheme === 'dark') {
+            body.classList.add('dark-mode');
+            themeIcon.textContent = '☀️';
+            themeText.textContent = 'Light';
+        }
+        
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            
+            if (body.classList.contains('dark-mode')) {
+                themeIcon.textContent = '☀️';
+                themeText.textContent = 'Light';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                themeIcon.textContent = '🌙';
+                themeText.textContent = 'Dark';
+                localStorage.setItem('theme', 'light');
+            }
+        });
+        
+        // Card Expand/Collapse Functionality
+        function toggleMinimalCard(headerElement) {
+            const card = headerElement.closest('.turn-card-minimal');
+            const detailedContent = card.querySelector('.detailed-content');
+            const keypoints = card.querySelector('.minimal-keypoints');
+            const icon = card.querySelector('.minimal-expand');
+            
+            detailedContent.classList.toggle('expanded');
+            icon.classList.toggle('expanded');
+            
+            if (detailedContent.classList.contains('expanded')) {
+                keypoints.classList.add('has-expanded');
+            } else {
+                keypoints.classList.remove('has-expanded');
+            }
+        }
+        
+        // Animation Demo Functions
+        let currentCard = null;
+        
+        function createCardHTML() {
+            return `
+                <div class="turn-card-minimal" style="overflow: hidden;">
+                    <div class="minimal-header" onclick="toggleMinimalCard(this)">
+                        <div class="minimal-badge">1</div>
+                        <div class="minimal-content">
+                            <div class="minimal-title-wrapper">
+                                <h3 class="minimal-title">Earth Art: Art Created Directly Within Natural Landscapes</h3>
+                                <div class="minimal-expand">▼</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="minimal-body">
+                        <div class="minimal-keypoints">
+                            <div class="minimal-keypoint">
+                                <span class="minimal-icon">▸</span>
+                                <span>Earth Art, also known as Land Art, emerged in the late 1960s and early 1970s, utilizing natural materials and existing within landscapes.</span>
+                            </div>
+                            <div class="minimal-keypoint">
+                                <span class="minimal-icon">▸</span>
+                                <span>Artists created site-specific artworks to break away from traditional gallery settings and challenge viewers' relationship with nature.</span>
+                            </div>
+                            <div class="minimal-keypoint">
+                                <span class="minimal-icon">▸</span>
+                                <span>The movement often addresses environmental concerns and emphasizes the impermanence of human intervention, influencing contemporary eco-art and installations.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function showAnimation(animationType) {
+            const cardContainer = document.getElementById('cardContainer');
+            const textBefore = document.getElementById('textBefore');
+            const textAfter = document.getElementById('textAfter');
+            
+            // Clear existing card first
+            if (currentCard) {
+                cardContainer.innerHTML = '';
+                currentCard = null;
+            }
+            
+            // Add highlight to both text sections
+            textBefore.classList.add('highlight-before');
+            
+            // Small delay before highlighting second text
+            setTimeout(() => {
+                textAfter.classList.add('highlight-after');
+            }, 150);
+            
+            // Insert card with animation after highlights
+            setTimeout(() => {
+                cardContainer.innerHTML = createCardHTML();
+                const card = cardContainer.querySelector('.turn-card-minimal');
+                
+                // Apply animation class
+                card.classList.add('anim-' + animationType);
+                
+                // Remove animation class after animation completes
+                setTimeout(() => {
+                    card.classList.remove('anim-' + animationType);
+                }, 1000);
+                
+                currentCard = card;
+            }, 300);
+            
+            // Remove highlights after animation
+            setTimeout(() => {
+                textBefore.classList.remove('highlight-before');
+                textAfter.classList.remove('highlight-after');
+            }, 1200);
+        }
+        
+        function resetAnimation() {
+            const cardContainer = document.getElementById('cardContainer');
+            const textBefore = document.getElementById('textBefore');
+            const textAfter = document.getElementById('textAfter');
+            
+            // Remove all highlights
+            textBefore.classList.remove('highlight-before');
+            textAfter.classList.remove('highlight-after');
+            
+            // Fade out current card
+            if (currentCard) {
+                currentCard.style.transition = 'all 0.4s ease-out';
+                currentCard.style.opacity = '0';
+                currentCard.style.maxHeight = '0';
+                currentCard.style.marginBottom = '0';
+                currentCard.style.transform = 'translateY(-20px)';
+                
+                setTimeout(() => {
+                    cardContainer.innerHTML = '';
+                    currentCard = null;
+                }, 400);
+            } else {
+                cardContainer.innerHTML = '';
+            }
+        }
+    </script>
+</body>
+</html>
+
