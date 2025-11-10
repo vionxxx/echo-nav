@@ -35,7 +35,7 @@ Before installing EchoNav, ensure your system meets these requirements:
 
 ### Step 2: Download the Extension
 ```bash
-git clone https://github.com/your-username/echonav.git
+git clone https://github.com/vionxxx/echo-nav.git
 ```
 
 ### Step 3: Install in Chrome
